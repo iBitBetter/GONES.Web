@@ -3,8 +3,6 @@
 GONES ERP 系统的 **Web 层**，基于 **ASP.NET Core (.NET 9) + Furion 框架 + PostgreSQL (Npgsql)** 构建，
 覆盖商品基础资料、仓储收发货、生产工单与领退料、权限与菜单管理等业务模块。
 
-> 本项目由 ZS/ZSMIS 旧体系迁移而来，已完成从 SQL Server 到 PostgreSQL 的 `snake_case` 字段重命名（手工 SQL 脚本，
-> 不使用 EF 迁移），并落地了「菜单路由单一真相源」「角色↔菜单聚合口径」等权限不变量。
 
 ## 技术栈
 
