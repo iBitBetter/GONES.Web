@@ -1,0 +1,41 @@
+@model GONES.Web.Models.RoleEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "角色编辑" : "新建角色";
+    bool isEdit = Model.ID > 0;
+}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <form class="card" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? (int?)Model.ID : null)" method="post" autocomplete="off">
+            @if (isEdit)
+            {
+                <input type="hidden" asp-for="ID" />
+            }
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="RoleName">角色名称</label>
+                    <input asp-for="RoleName" class="form-control" placeholder="请输入角色名称" />
+                    <span asp-validation-for="RoleName" class="text-danger"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="RoleMemo">角色备注</label>
+                    <input asp-for="RoleMemo" class="form-control" placeholder="请输入角色备注" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input class="form-check-input" asp-for="IsReadonly" type="checkbox" />
+                        <span class="form-check-label">只读角色（仅查询，不能有增删改审等操作权限）</span>
+                    </label>
+                </div>
+
+                <div asp-validation-summary="All" class="text-danger"></div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-list justify-content-end">
+                    <a class="btn" href="/SysRole@(isEdit ? $"?id={Model.ID}" : "")">关闭(C)</a>
+                    <button type="submit" class="btn btn-primary">保存(S)</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

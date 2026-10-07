@@ -1,0 +1,116 @@
+@using GONES.Web.Models
+@model StockCheckDerivedViewModel
+@{
+    ViewBag.Title = Model.TypeName;
+    var isSurplus = Model.BillType == 7;
+    var totalQty = Model.Rows.Sum(r => r.Qty ?? 0m);
+    var totalAmount = Model.Rows.Sum(r => (r.Qty ?? 0m) * (r.Price ?? 0m));
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col">
+            <h2 class="page-title">@Model.TypeName @Model.BillNo</h2>
+        </div>
+        <div class="col-auto">
+            <span class="badge @(isSurplus ? "bg-red-lt" : "bg-green-lt") me-2">@(isSurplus ? "盘盈 +" : "盘亏 −")</span>
+            @if (Model.State)
+            {
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            }
+            @if (Model.SourceInterId.HasValue)
+            {
+                <a class="btn btn-outline-secondary" href="/StockCheck/Details/@Model.SourceInterId.Value">返回盘点单</a>
+            }
+            <a class="btn btn-outline-secondary" href="/StockCheck">返回列表</a>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-3">
+                <label class="form-label">单据编号</label>
+                <input type="text" class="form-control" value="@Model.BillNo" readonly />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">单据类型</label>
+                <input type="text" class="form-control" value="@Model.TypeName" readonly />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">单据日期</label>
+                <input type="text" class="form-control" value="@(Model.Date?.ToString("yyyy-MM-dd"))" readonly />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label">来源盘点单</label>
+                <input type="text" class="form-control" value="@Model.SourceBillNo" readonly />
+            </div>
+            <div class="col-12">
+                <label class="form-label">摘要</label>
+                <input type="text" class="form-control" value="@Model.Remark" readonly />
+            </div>
+        </div>
+        <div class="form-hint mt-2">
+            本单由仓库盘点单审核时按「实盘数量 − 账面数量」差额自动派生，只读不可修改；
+            反审核源盘点单会整单回滚并删除此处记录。
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">@(isSurplus ? "盘盈明细" : "盘亏明细")</h3>
+        <div class="card-actions">
+            <span class="badge bg-azure-lt">@Model.Rows.Count 行</span>
+            <span class="badge bg-blue-lt">合计数量 @totalQty.ToString("0.####")</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm">
+            <thead>
+                <tr>
+                    <th>产品代码</th>
+                    <th>产品名称</th>
+                    <th class="text-secondary">规格型号</th>
+                    <th class="text-secondary">单位</th>
+                    <th class="text-secondary">批号</th>
+                    <th class="text-end">数量</th>
+                    <th class="text-end text-secondary">单价</th>
+                    <th class="text-end text-secondary">金额</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Rows.Count == 0)
+                {
+                    <tr><td colspan="8" class="text-center text-secondary py-4">无明细。</td></tr>
+                }
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td>@r.Cpbm</td>
+                        <td>@r.Cpjc</td>
+                        <td class="text-secondary">@r.Cpgg</td>
+                        <td class="text-secondary">@r.Unit</td>
+                        <td class="text-secondary text-nowrap">@r.BatchNo</td>
+                        <td class="text-end">@((r.Qty ?? 0m).ToString("0.####"))</td>
+                        <td class="text-end text-secondary">@((r.Price ?? 0m).ToString("0.00"))</td>
+                        <td class="text-end text-secondary">@(((r.Qty ?? 0m) * (r.Price ?? 0m)).ToString("0.00"))</td>
+                    </tr>
+                }
+            </tbody>
+            @if (Model.Rows.Count > 0)
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="5" class="text-end">合计：</td>
+                        <td class="text-end">@totalQty.ToString("0.####")</td>
+                        <td></td>
+                        <td class="text-end">@totalAmount.ToString("0.00")</td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+</div>

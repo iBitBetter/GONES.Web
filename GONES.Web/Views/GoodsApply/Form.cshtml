@@ -1,0 +1,510 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model GoodsApplyEditViewModel
+@{
+    ViewBag.Title = "要货计划单维护";
+    var isNew = Model.InterId == 0;
+    var readOnly = (bool)(ViewBag.ReadOnly ?? false);
+    Func<bool, string> Dis = ro => ro ? "disabled" : null;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var subDeptOptions = (List<t_ERP_Department>)ViewBag.SubDeptOptions;
+    var workers = (List<t_PMS_Worker>)ViewBag.Workers;
+    var rowItems = (Dictionary<int, t_ERP_ITEM>)ViewBag.RowItems;
+    var rowBom = (Dictionary<int, int>)ViewBag.RowBom;
+    var rows = Model.Rows ?? new List<GoodsApplyRowInput>();
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/GoodsApply">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@(isNew ? "/GoodsApply/Create" : "/GoodsApply/Edit/" + Model.InterId)">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="InterId" value="@Model.InterId" />
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label required">申请日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required disabled="@Dis(readOnly)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="Explanation" value="@Model.Explanation" placeholder="选填" disabled="@Dis(readOnly)" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label required">申请部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required disabled="@Dis(readOnly)">
+                        <option value="">-- 请选择申请部门 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label required">申请车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" required disabled="@Dis(readOnly)">
+                        <option value="">-- 请先选申请部门 --</option>
+                        @foreach (var s in subDeptOptions)
+                        {
+                            var sel = (Model.WorkShopId == s.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + s.ID + "\" data-parent=\"" + s.ParentID + "\"" + sel + ">" + Html.Encode(s.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label required">申请人</label>
+                    <select class="form-select" name="EmpId" id="EmpId" required disabled="@Dis(readOnly)">
+                        <option value="">-- 请先选申请车间 --</option>
+                        @foreach (var w in workers)
+                        {
+                            var sel = (Model.EmpId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\" data-depid=\"" + w.DEPID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">要货明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (!readOnly)
+            {
+                <div class="text-end mb-3">
+                    <button type="button" class="btn btn-outline-primary" id="btnFromBom">来自BOM单</button>
+                </div>
+            }
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:11%;">商品编码</th>
+                            <th style="width:16%;">名称</th>
+                            <th style="width:9%;">规格</th>
+                            <th style="width:8%;">类别</th>
+                            <th style="width:7%;">BOM 单号</th>
+                            <th style="width:9%;">计划数量</th>
+                            <th style="width:7%;">单位</th>
+                            <th style="width:9%;">单价</th>
+                            <th style="width:9%;">金额</th>
+                            <th style="width:11%;">完成日期</th>
+                            <th style="width:9%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="gaBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            t_ERP_ITEM info = null;
+                            rowItems.TryGetValue(r.ItemId, out info);
+                            var bomId = rowBom.ContainsKey(r.ItemId) ? rowBom[r.ItemId] : 0;
+                            var amount = (r.Qty ?? 0m) * (r.Price ?? 0m);
+                            <tr data-itemid="@r.ItemId">
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <span>@(info?.ItemCode)</span>
+                                </td>
+                                <td>@(info?.ItemShortName)</td>
+                                <td class="text-secondary">@(info?.ItemSpec)</td>
+                                <td><span class="badge bg-secondary-lt">@(info?.ProductCategory)</span></td>
+                                <td>
+                                    @if (bomId > 0)
+                                    {
+                                        <span class="badge bg-green-lt">@bomId</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-red-lt">缺失</span>
+                                    }
+                                </td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ga-calc" name="Rows[@ri].Qty" value="@r.Qty?.ToString("0.00")" disabled="@Dis(readOnly)" /></td>
+                                <td class="text-secondary">@(info?.BaseUnit)</td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ga-calc" name="Rows[@ri].Price" value="@r.Price?.ToString("0.00")" disabled="@Dis(readOnly)" /></td>
+                                <td><span class="ga-amount text-secondary">@amount.ToString("0.00")</span></td>
+                                <td><input type="date" class="form-control form-control-sm" name="Rows[@ri].FetchDate" value="@r.FetchDate?.ToString("yyyy-MM-dd")" disabled="@Dis(readOnly)" /></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" disabled="@Dis(readOnly)" /></td>
+                                <td>
+                                    @if (!readOnly)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger ga-del">删</button>
+                                    }
+                                </td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存要货计划单</button>
+            </div>
+        }
+    </div>
+</form>
+
+@* 来自BOM单 选择模态：过滤 + 滚动列表，支撑大批量 BOM 产成品选择 *@
+<div class="modal modal-blur overflow-hidden" id="bomModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择 BOM 产成品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-md-4">
+                        <select class="form-select" id="bomStep" title="按工序筛选 BOM 清单，默认显示包装工序"></select>
+                    </div>
+                    <div class="col-md-8">
+                        <input type="text" class="form-control" id="bomFilter" placeholder="输入编码 / 名称 / 规格 / 类别 过滤，支持大量数据快速定位" autocomplete="off">
+                    </div>
+                </div>
+                <div style="max-height:380px;overflow:auto;border:1px solid rgba(0,0,0,.08);border-radius:4px;">
+                    <table class="table table-sm table-vcenter card-table mb-0">
+                        <thead>
+                            <tr>
+                                <th>商品编码</th>
+                                <th>名称</th>
+                                <th>规格</th>
+                                <th>类别</th>
+                                <th>工序</th>
+                                <th>BOM 单号</th>
+                                <th>单位</th>
+                                <th>单价</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bomBody">
+                            <tr><td colspan="8" class="text-center text-secondary">加载中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="form-hint mt-2">默认显示「包装」工序下的 BOM 清单，可切换工序或选「全部工序」；点选行加入要货明细，计划数量默认 0.00 由操作员填写，单价默认取商品成本单价可修改，金额 = 数量 × 单价 自动计算。</div>
+            </div>
+            <div class="modal-footer">
+                <span class="me-auto text-secondary" id="bomCount"></span>
+                <button type="button" class="btn" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('gaBody');
+            var rowCount = document.getElementById('rowCount');
+            var deptSel = document.getElementById('DeptId');
+            var wsSel = document.getElementById('WorkShopId');
+            var empSel = document.getElementById('EmpId');
+            var btnFromBom = document.getElementById('btnFromBom');
+            var bomModalEl = document.getElementById('bomModal');
+            var bomBody = document.getElementById('bomBody');
+            var bomFilter = document.getElementById('bomFilter');
+            var bomCount = document.getElementById('bomCount');
+            var bomStepSel = document.getElementById('bomStep');
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() {
+                if (rowCount) rowCount.textContent = body.rows.length + ' 行';
+            }
+
+            function reindex() {
+                var fields = ['ItemId', 'Qty', 'Price', 'FetchDate', 'Note'];
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < fields.length; k++) {
+                        var el = trs[i].querySelector('[name$="' + fields[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + fields[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            // ===== 三级联动：申请部门 -> 申请车间 -> 申请人 =====
+            // 子部门与申请人选项全部服务端渲染一次，这里只做显隐过滤；
+            // 当前已选中的选项始终保留显示（兼容旧草稿的遗留组合，保存前会被服务端校验拦截提示）。
+            function filterSelect(sel, pred) {
+                for (var i = 0; i < sel.options.length; i++) {
+                    var o = sel.options[i];
+                    if (o.value === '') continue;             // placeholder stays
+                    o.hidden = !(pred(o) || o.selected);      // keep current selection visible
+                }
+            }
+
+            // Placeholder text must follow the filtered result: a dept with no child
+            // workshop used to keep saying "please pick a department first", leaving the
+            // operator stuck with an empty list and no explanation.
+            function setPlaceholder(sel, text) {
+                if (sel && sel.options.length && sel.options[0].value === '') sel.options[0].text = text;
+            }
+
+            function visibleCount(sel) {
+                var n = 0;
+                for (var i = 0; i < sel.options.length; i++) {
+                    if (sel.options[i].value && !sel.options[i].hidden) n++;
+                }
+                return n;
+            }
+
+            function workshopVisible(o) {
+                return deptSel.value !== '' && o.getAttribute('data-parent') === deptSel.value;
+            }
+
+            function workerVisible(o) {
+                if (wsSel.value === '') return false;
+                var dep = o.getAttribute('data-depid');
+                return dep === wsSel.value || depParent[dep] === wsSel.value;
+            }
+
+            // 子部门 -> 父部门 映射（用于班组下员工归属车间）
+            var depParent = {};
+            for (var i = 0; i < wsSel.options.length; i++) {
+                var o = wsSel.options[i];
+                if (o.value) depParent[o.value] = o.getAttribute('data-parent');
+            }
+
+            function fillWorkers() {
+                filterSelect(empSel, workerVisible);
+                var cur = empSel.options[empSel.selectedIndex];
+                if (empSel.value !== '' && cur && cur.hidden) empSel.value = '';
+                setPlaceholder(empSel, wsSel.value === ''
+                    ? '-- 请先选申请车间 --'
+                    : (visibleCount(empSel) ? '-- 请选择申请人 --' : '-- 该车间下无在职人员 --'));
+            }
+
+            function fillWorkshops(reset) {
+                if (reset) wsSel.value = '';
+                filterSelect(wsSel, workshopVisible);
+                var cur = wsSel.options[wsSel.selectedIndex];
+                if (wsSel.value !== '' && cur && cur.hidden) wsSel.value = '';
+                if (reset) empSel.value = '';
+                setPlaceholder(wsSel, deptSel.value === ''
+                    ? '-- 请先选申请部门 --'
+                    : (visibleCount(wsSel) ? '-- 请选择申请车间 --' : '-- 该部门下无车间/仓库 --'));
+                fillWorkers();
+            }
+
+            deptSel.addEventListener('change', function () { fillWorkshops(true); });
+            wsSel.addEventListener('change', function () { empSel.value = ''; fillWorkers(); });
+            fillWorkshops(false);   // 初始按已选值过滤（编辑回显）
+
+            function recalcAmount(tr) {
+                var qty = parseFloat(tr.querySelector('[name$=".Qty"]').value) || 0;
+                var price = parseFloat(tr.querySelector('[name$=".Price"]').value) || 0;
+                tr.querySelector('.ga-amount').textContent = (qty * price).toFixed(2);
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+                if (e.target.classList.contains('ga-calc')) recalcAmount(e.target.closest('tr'));
+            }, true);
+
+            function addRow(item) {
+                var id = String(item.id);
+                if (!id) return;
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-itemid') === id) { gonesToast('该商品已在要货明细中！'); return; }
+                }
+
+                // 完成日期默认今天 + 7 天（与旧系统一致）
+                var d = new Date(); d.setDate(d.getDate() + 7);
+                var fetchDate = d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+                var price = Number(item.price || 0).toFixed(2);
+
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                tr.innerHTML =
+                    '<td><input type="hidden" name="Rows[0].ItemId" value="' + esc(id) + '">' +
+                    '    <span>' + esc(item.cpbm) + '</span></td>' +
+                    '<td>' + esc(item.cpjc) + '</td>' +
+                    '<td class="text-secondary">' + esc(item.cpgg) + '</td>' +
+                    '<td><span class="badge bg-secondary-lt">' + esc(item.cplb) + '</span></td>' +
+                    '<td><span class="badge bg-green-lt">' + esc(item.bomId) + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ga-calc" name="Rows[0].Qty" value="0.00"></td>' +
+                    '<td class="text-secondary">' + esc(item.unit) + '</td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ga-calc" name="Rows[0].Price" value="' + price + '"></td>' +
+                    '<td><span class="ga-amount text-secondary">0.00</span></td>' +
+                    '<td><input type="date" class="form-control form-control-sm" name="Rows[0].FetchDate" value="' + fetchDate + '"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger ga-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+            }
+
+            // ===== 来自BOM单：模态窗体选择（过滤 + 滚动列表，支撑大批量数据） =====
+            var bomLoaded = false;
+            var bomData = [];
+            var bomModal = null;
+            try { bomModal = bootstrap.Modal.getOrCreateInstance(bomModalEl); } catch (e) { console.error(e); }
+
+            function isItemAdded(id) {
+                for (var j = 0; j < body.rows.length; j++) {
+                    if (body.rows[j].getAttribute('data-itemid') === String(id)) return true;
+                }
+                return false;
+            }
+
+            function renderBomRows() {
+                var kw = (bomFilter.value || '').trim().toLowerCase();
+                var stepVal = bomStepSel ? bomStepSel.value : '';   // '' = all steps
+                var h = '';
+                var shown = 0;
+                for (var i = 0; i < bomData.length; i++) {
+                    var p = bomData[i];
+                    if (stepVal !== '' && String(p.stepId || 0) !== stepVal) continue;
+                    var hay = ((p.cpbm || '') + '|' + (p.cpjc || '') + '|' + (p.cpgg || '') + '|' + (p.cplb || '')).toLowerCase();
+                    if (kw && hay.indexOf(kw) < 0) continue;
+                    shown++;
+                    var cells =
+                        '<td>' + esc(p.cpbm) + '</td>' +
+                        '<td>' + esc(p.cpjc) + '</td>' +
+                        '<td class="text-secondary">' + esc(p.cpgg) + '</td>' +
+                        '<td><span class="badge bg-secondary-lt">' + esc(p.cplb) + '</span></td>' +
+                        '<td><span class="badge bg-purple-lt">' + esc(p.stepName || (p.stepId ? '工序 ' + p.stepId : '-')) + '</span></td>' +
+                        '<td><span class="badge bg-green-lt">' + esc(p.bomId) + '</span></td>' +
+                        '<td class="text-secondary">' + esc(p.unit) + '</td>' +
+                        '<td>' + esc(Number(p.price || 0).toFixed(2)) + '</td>';
+                    if (isItemAdded(p.id)) {
+                        h += '<tr class="text-muted">' + cells + '<td><span class="badge bg-green-lt">已添加</span></td></tr>';
+                    } else {
+                        h += '<tr data-idx="' + i + '" style="cursor:pointer;" class="bom-row">' + cells + '<td><span class="badge bg-azure-lt">点选添加</span></td></tr>';
+                    }
+                }
+                bomBody.innerHTML = h || '<tr><td colspan="9" class="text-center text-muted">无匹配商品</td></tr>';
+                bomCount.textContent = '共 ' + bomData.length + ' 个产成品，当前显示 ' + shown + ' 个';
+            }
+
+            // 工序下拉：数据加载后构建；默认选中名称含「包装」的工序（找不到则选第一个）
+            function buildStepOptions() {
+                if (!bomStepSel) return;
+                var seen = {};
+                var order = [];
+                var wrapStep = '';
+                for (var i = 0; i < bomData.length; i++) {
+                    var p = bomData[i];
+                    var sid = String(p.stepId || 0);
+                    if (!seen[sid]) {
+                        seen[sid] = p.stepName || (p.stepId ? '工序 ' + p.stepId : '未指定工序');
+                        order.push(sid);
+                        if (seen[sid].indexOf('\u5305\u88c5') >= 0 && !wrapStep) wrapStep = sid;   // default: packaging step
+                    }
+                }
+                order.sort(function (a, b) { return parseInt(a, 10) - parseInt(b, 10); });
+                var h = '';
+                for (var k = 0; k < order.length; k++) {
+                    h += '<option value="' + esc(order[k]) + '">' + esc(seen[order[k]]) + '</option>';
+                }
+                h += '<option value="">全部工序</option>';
+                bomStepSel.innerHTML = h;
+                bomStepSel.value = wrapStep || (order.length ? order[0] : '');
+            }
+
+            if (bomStepSel) bomStepSel.addEventListener('change', renderBomRows);
+
+            bomFilter.addEventListener('input', renderBomRows);
+
+            bomBody.addEventListener('click', function (e) {
+                var tr = e.target.closest('tr[data-idx]');
+                if (!tr) return;   // 已添加行无 data-idx，不可再点
+                addRow(bomData[parseInt(tr.getAttribute('data-idx'), 10)]);
+                renderBomRows();   // 该行转为「已添加」状态
+            });
+
+            if (btnFromBom) {
+                btnFromBom.addEventListener('click', function () {
+                    if (!bomModal) return;
+                    bomModal.show();
+                    if (bomLoaded) { renderBomRows(); return; }
+                    btnFromBom.disabled = true;
+                    fetch('/GoodsApply/BomItems')
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            bomData = data || [];
+                            bomLoaded = true;
+                            buildStepOptions();   // default-select the packaging step
+                            renderBomRows();
+                        })
+                        .catch(function (err) {
+                            console.error(err);
+                            bomBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger">加载失败，请重试</td></tr>';
+                        })
+                        .finally(function () { btnFromBom.disabled = false; });
+                });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('ga-del')) {
+                    e.target.closest('tr').remove();
+                    reindex();
+                }
+            });
+
+            // Guard against double submit: a fast double click (or a slow save) would
+            // POST the same form twice and create two identical bills -- the server-side
+            // max+1 lock prevents id collisions but cannot tell a duplicate submit from
+            // a genuinely new bill. Bound on submit (not click) so HTML5 required-field
+            // validation still blocks first and never leaves the button stuck disabled.
+            var form = body.closest('form');
+            if (form) {
+                form.addEventListener('submit', function () {
+                    var btn = form.querySelector('button[type=submit]');
+                    if (btn && !btn.disabled) { btn.disabled = true; btn.textContent = '保存中…'; }
+                });
+            }
+
+            refreshCount();
+        })();
+    </script>
+}

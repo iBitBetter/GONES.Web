@@ -1,0 +1,51 @@
+@model GONES.Web.Models.LoginViewModel
+@{
+    Layout = "~/Views/Shared/_LoginLayout.cshtml";
+    ViewBag.Title = "登录";
+}
+<div class="text-center mb-4">
+    <h1 class="navbar-brand navbar-brand-autodark fs-2">GONESERP SYSTEM</h1>
+</div>
+<div class="card card-md">
+    <div class="card-body">
+        <h2 class="h2 text-center mb-4">用户登录</h2>
+        <form asp-action="Login" method="post" autocomplete="off">
+            <div class="mb-3">
+                <label class="form-label" asp-for="UserName">用户名</label>
+                <div class="input-icon">
+                    <span class="input-icon-addon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M8 7a4 4 0 1 0 8 0a4 4 0 0 0 -8 0" />
+                            <path d="M6 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" />
+                        </svg>
+                    </span>
+                    <input asp-for="UserName" class="form-control" placeholder="请输入用户名" autofocus />
+                </div>
+                <span asp-validation-for="UserName" class="text-danger"></span>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" asp-for="Password">密码</label>
+                <div class="input-icon">
+                    <span class="input-icon-addon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M5 13a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v6a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-6z" />
+                            <path d="M11 16a1 1 0 1 0 2 0a1 1 0 0 0 -2 0" />
+                            <path d="M8 11v-4a4 4 0 1 1 8 0v4" />
+                        </svg>
+                    </span>
+                    <input asp-for="Password" type="password" class="form-control" placeholder="请输入密码" />
+                </div>
+                <span asp-validation-for="Password" class="text-danger"></span>
+            </div>
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div class="alert alert-danger">@Html.ValidationSummary(true)</div>
+            }
+            <div class="form-footer">
+                <button type="submit" class="btn btn-primary w-100">登 录</button>
+            </div>
+        </form>
+    </div>
+</div>

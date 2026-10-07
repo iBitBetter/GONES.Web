@@ -1,0 +1,121 @@
+@model System.Collections.Generic.List<GONES.Model.Pg.t_PMS_Step>
+@{
+    ViewBag.Title = "工序名称";
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-primary" href="/PmsStep/Create">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                    <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                </svg>
+                新建
+            </a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+            <thead>
+                <tr>
+                    <th>工序名称</th>
+                    <th>工序类型</th>
+                    <th>工序算法</th>
+                    <th>标准工时</th>
+                    <th>标准数量</th>
+                    <th>单件人工</th>
+                    <th>小时人工</th>
+                    <th>工序价格</th>
+                    <th>工序单位</th>
+                    <th>计价单位</th>
+                    <th>损耗率</th>
+                    <th class="w-1">状态</th>
+                    <th class="w-1">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var s in Model)
+                {
+                    var disabled = (s.FDelete ?? 0) == 1;
+                    <tr class="@(disabled ? "text-secondary" : "")">
+                        <td>@s.FName</td>
+                        <td>@s.FType</td>
+                        <td>@s.FAlgo</td>
+                        <td>@(s.FHour?.ToString("0.####") ?? "0")</td>
+                        <td>@(s.FNum?.ToString("0.####") ?? "0")</td>
+                        <td>@(s.FSingleArti?.ToString("0.####") ?? "0")</td>
+                        <td>@(s.FHourArti?.ToString("0.####") ?? "0")</td>
+                        <td>@(s.FPrice?.ToString("0.####") ?? "0")</td>
+                        <td>@s.FWorkHourUnit</td>
+                        <td>@s.FPriceUnit</td>
+                        <td>@s.FLossRate</td>
+                        <td>
+                            @if (disabled)
+                            {
+                                <span class="badge bg-red-lt">已禁用</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-green-lt">正常</span>
+                            }
+                        </td>
+                        <td>
+                            <div class="btn-list flex-nowrap">
+                                <a class="btn btn-sm btn-outline-primary" href="/PmsStep/Edit/@s.FItemID">修改</a>
+                                @if (disabled)
+                                {
+                                    <form asp-action="Enable" asp-route-id="@s.FItemID" method="post" class="d-inline"
+                                          data-confirm=""
+                                          data-confirm-title="启用工序"
+                                          data-confirm-message="确定重新启用工序“@s.FName”吗？启用后将重新出现在 BOM 的工序选择列表中。"
+                                          data-confirm-yes="确定启用"
+                                          data-confirm-yes-class="btn-success">
+                                        <button type="submit" class="btn btn-sm btn-outline-success">启用</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <form asp-action="Disable" asp-route-id="@s.FItemID" method="post" class="d-inline"
+                                          data-confirm=""
+                                          data-confirm-title="禁用工序"
+                                          data-confirm-message="确定禁用工序“@s.FName”吗？禁用后不再出现在 BOM 的工序选择列表中，历史单据不受影响。"
+                                          data-confirm-yes="确定禁用"
+                                          data-confirm-yes-class="btn-warning">
+                                        <button type="submit" class="btn btn-sm btn-outline-warning">禁用</button>
+                                    </form>
+                                }
+                                <form asp-action="Delete" asp-route-id="@s.FItemID" method="post" class="d-inline"
+                                      data-confirm=""
+                                      data-confirm-title="删除工序"
+                                      data-confirm-message="确定删除工序“@s.FName”吗？"
+                                      data-confirm-yes="确定删除"
+                                      data-confirm-yes-class="btn-danger">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @if (Model.Count == 0)
+    {
+        <div class="card-body text-center text-secondary py-5">
+            暂无工序数据。
+        </div>
+    }
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>

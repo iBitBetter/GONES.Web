@@ -1,0 +1,193 @@
+@using GONES.Web.Models
+@model List<StockCheckListRow>
+@{
+    ViewBag.Title = "仓库盘点单维护";
+    var billCount = Model.Select(r => r.InterId).Distinct().Count();
+    var hasRows = Model.Count > 0;
+    var filter = (Dictionary<string, string>)ViewBag.Filter;
+    var totalQty = (decimal)ViewBag.TotalQty;
+    decimal pageQty = Model.Sum(r => r.CheckQty ?? 0m);
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto d-print-none">
+            <a class="btn btn-primary" href="/StockCheck/Create">新增仓库盘点单</a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body py-3">
+        <form method="get" class="row g-3 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" id="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" id="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据编号</label>
+                <input type="text" class="form-control form-control-sm" name="billNo" value="@filter["billNo"]" placeholder="模糊匹配" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">审核</label>
+                <select class="form-select form-select-sm" name="state">
+                    <option value="-1" selected="@(filter["state"] == "-1")">全部</option>
+                    <option value="1" selected="@(filter["state"] == "1")">已审核</option>
+                    <option value="0" selected="@(filter["state"] == "0")">未审核</option>
+                </select>
+            </div>
+            <div class="col-auto ms-auto">
+                <div class="d-flex align-items-end gap-2">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="today">当天</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="month">本月</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="lastmonth">上月</button>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                    <a class="btn btn-sm btn-outline-secondary" href="/StockCheck">清空</a>
+                    <a class="btn btn-sm btn-outline-success" href="/StockCheck/Export?dateFrom=@filter["dateFrom"]&dateTo=@filter["dateTo"]&billNo=@System.Net.WebUtility.UrlEncode(filter["billNo"])&state=@filter["state"]">导出Excel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">仓库盘点单列表</h3>
+        <div class="card-actions">
+            <span class="badge bg-azure-lt">本页 @billCount 单 / @Model.Count 行</span>
+            <span class="badge bg-blue-lt">本页盘点合计 @pageQty.ToString("0.####")</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm">
+            <thead>
+                <tr>
+                    <th class="w-1">审核</th>
+                    <th>单据日期</th>
+                    <th>单据编号</th>
+                    <th>盘点部门</th>
+                    <th>盘点仓库</th>
+                    <th>盘点人</th>
+                    <th>批号</th>
+                    <th>产品代码</th>
+                    <th>分类</th>
+                    <th>产品名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th class="text-end text-secondary">账面库存</th>
+                    <th class="text-end">实盘数量</th>
+                    <th class="text-end text-secondary">盘点单价</th>
+                    <th>备注</th>
+                    <th class="w-1">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!hasRows)
+                {
+                    <tr><td colspan="16" class="text-center text-secondary py-4">暂无符合条件的仓库盘点单。</td></tr>
+                }
+                @{
+                    var prevInterId = -1;
+                }
+                @foreach (var r in Model)
+                {
+                    var newBill = r.InterId != prevInterId;
+                    prevInterId = r.InterId;
+                    <tr class="@(newBill ? "border-top-2" : "")">
+                        <td class="text-center">
+                            @if (r.FirstOfBill)
+                            {
+                                @if (r.State)
+                                {
+                                    <span class="badge bg-green-lt">已审</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary-lt">未审</span>
+                                }
+                            }
+                        </td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.Date?.ToString("yyyy-MM-dd") : "")</td>
+                        <td>@(r.FirstOfBill ? r.BillNo : "")</td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.DeptName : "")</td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.WarehouseName : "")</td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.ManagerName : "")</td>
+                        <td class="text-secondary text-nowrap">@r.BatchNo</td>
+                        <td>@r.Cpbm</td>
+                        <td class="text-secondary">@r.Cplb</td>
+                        <td>@r.Cpjc</td>
+                        <td class="text-secondary">@r.Cpgg</td>
+                        <td class="text-secondary">@r.UnitName</td>
+                        <td class="text-end text-secondary">@((r.BookStock ?? 0m).ToString("0.####"))</td>
+                        <td class="text-end">@((r.CheckQty ?? 0m).ToString("0.####"))</td>
+                        <td class="text-end text-secondary">@((r.Price ?? 0m).ToString("0.00"))</td>
+                        <td class="text-secondary">@r.Note</td>
+                        <td class="text-nowrap">
+                            @if (r.FirstOfBill)
+                            {
+                                @if (!r.State)
+                                {
+                                    <a class="btn btn-sm btn-outline-secondary" href="/StockCheck/Edit/@r.InterId">修改</a>
+                                    <form method="post" action="/StockCheck/Audit/@r.InterId" class="d-inline"
+                                          data-confirm="确定审核该仓库盘点单？审核时将按「实盘 − 账面」差额自动生成盘盈单/盘亏单，盘点单本身不动库存。">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-success">审核</button>
+                                    </form>
+                                    <form method="post" action="/StockCheck/Delete/@r.InterId" class="d-inline"
+                                          data-confirm="确定删除该仓库盘点单？">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    <form method="post" action="/StockCheck/UnAudit/@r.InterId" class="d-inline"
+                                          data-confirm="确定反审核该仓库盘点单？已派生的盘盈单/盘亏单将整单回滚删除，库存恢复。">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-azure">反审核</button>
+                                    </form>
+                                    <a class="btn btn-sm btn-outline-info" href="/StockCheck/Details/@r.InterId">查看</a>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            @if (hasRows)
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="12" class="text-end">本页合计：</td>
+                        <td class="text-end">@string.Format("{0:0.00}", pageQty)</td>
+                        <td colspan="3"></td>
+                    </tr>
+                    <tr class="fw-bold text-danger">
+                        <td colspan="13" class="text-end">全部合计：</td>
+                        <td class="text-end">@string.Format("{0:0.00}", totalQty)</td>
+                        <td colspan="3"></td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>
+
+@section Scripts {
+    <partial name="_QuickRange" />
+}

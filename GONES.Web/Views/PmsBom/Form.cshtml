@@ -1,0 +1,444 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@using System.Text.Json
+@model BomEditViewModel
+@{
+    ViewBag.Title = "BOM清单设置";
+    var isNew = (bool)ViewBag.IsNew;
+    var steps = (List<t_PMS_Step>)ViewBag.Steps;
+    var rowItems = (Dictionary<int, BomPickerItem>)ViewBag.RowItems;
+    var unitOptions = (List<string>)ViewBag.UnitOptions;
+    var stepDefaultsJson = (string)ViewBag.StepDefaultsJson;
+    var rows = Model.Rows ?? new List<BomRowInput>();
+}
+
+@functions {
+    // 单位下拉：把当前值补进选项，避免历史数据的单位不在字典里时显示成空
+    string UnitSelect(List<string> opts, string cur)
+    {
+        var list = new List<string>(opts);
+        if (!string.IsNullOrEmpty(cur) && !list.Contains(cur)) list.Insert(0, cur);
+        var sb = new System.Text.StringBuilder();
+        foreach (var o in list)
+        {
+            var sel = string.Equals(o, cur, StringComparison.OrdinalIgnoreCase) ? " selected" : "";
+            sb.Append("<option value=\"").Append(Html.Encode(o)).Append("\"").Append(sel).Append(">")
+              .Append(Html.Encode(o)).Append("</option>");
+        }
+        return sb.ToString();
+    }
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/PmsBom?stepId=@Model.StepId">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@(isNew ? "/PmsBom/Create" : "/PmsBom/Edit/" + Model.BomId)">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="BomId" value="@Model.BomId" />
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label required">工序</label>
+                    <select class="form-select" name="StepId" id="StepId">
+                        @foreach (var s in steps)
+                        {
+                            var sel = (s.FItemID == Model.StepId) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + s.FItemID + "\"" + sel + ">" + Html.Encode(s.FName) + "</option>")
+                        }
+                    </select>
+                    <div class="form-hint">切换工序后，新添加的行会带入该工序的损耗默认值。</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">BOM 明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-md-3">
+                    <button type="button" class="btn btn-outline-primary" id="btnOpenPicker">选择商品</button>
+                </div>
+                <div class="col-md-9">
+                    <div class="form-hint">点击「选择商品」在弹出框中搜索并加入 BOM 明细。勾选「入库」的行表示该工序产出入库（FIsProduct=1），未勾选为出库投入（FIsProduct=0）；同一商品可分别添加一行入库与一行出库；「包装」工序入库行最多 1 行，其它工序入库行数量不限。</div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th class="w-1" title="勾选 = 入库(FIsProduct=1)；不勾 = 出库投入(FIsProduct=0)">入库</th>
+                            <th style="width: 12%;">商品编码</th>
+                            <th style="width: 18%;">名称</th>
+                            <th style="width: 12%;">规格</th>
+                            <th style="width: 9%;">类别</th>
+                            <th style="width: 9%;">基本用量</th>
+                            <th style="width: 8%;">单位</th>
+                            <th style="width: 8%;">标准损耗</th>
+                            <th style="width: 8%;">损耗率</th>
+                            <th style="width: 8%;">损耗值</th>
+                            <th style="width: 12%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="bomBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            BomPickerItem info = null;
+                            rowItems.TryGetValue(r.ItemId, out info);
+                            var badge = info == null
+                                ? "<span class=\"badge bg-red-lt\">商品缺失</span>"
+                                : (info.IsOutput
+                                    ? "<span class=\"badge bg-green-lt\">" + Html.Encode(info.Cplb) + "</span>"
+                                    : "<span class=\"badge bg-secondary-lt\">" + Html.Encode(info.Cplb) + "</span>");
+                            <tr data-itemid="@r.ItemId" class="@(r.IsProduct ? "bom-row-in" : "")">
+                                <td class="text-center">
+@* multi-value binding takes the FIRST value: checkbox(true) must come BEFORE hidden(false) *@
+                                    <input type="checkbox" class="form-check-input" name="Rows[@ri].IsProduct" value="true" @(r.IsProduct ? "checked" : "") title="勾选 = 入库(FIsProduct=1)" />
+                                    <input type="hidden" name="Rows[@ri].IsProduct" value="false" />
+                                </td>
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <span>@(info?.Cpbm)</span>
+                                </td>
+                                <td>@(info?.Cpjc)</td>
+                                <td class="text-secondary">@(info?.Cpgg)</td>
+                                <td>@Html.Raw(badge)</td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[@ri].BaseNum" value="@r.BaseNum?.ToString("0.00")" /></td>
+                                <td>
+                                    <select class="form-select form-select-sm" name="Rows[@ri].Unit" style="min-width:72px">
+                                        @Html.Raw(UnitSelect(unitOptions, r.Unit))
+                                    </select>
+                                </td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[@ri].LossStandValue" value="@r.LossStandValue?.ToString("0.00")" /></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].LossRate" value="@r.LossRate" /></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[@ri].LossValue" value="@r.LossValue?.ToString("0.00")" /></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Remark" value="@r.Remark" /></td>
+                                <td><button type="button" class="btn btn-sm btn-outline-danger bom-del">删</button></td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-footer text-end">
+            <button type="submit" class="btn btn-primary">保存BOM清单</button>
+        </div>
+    </div>
+</form>
+
+@* 商品选择弹窗：复用全局 Tabler modal 弹出框组件（与 _Layout 中 gones-confirm-modal 同构） *@
+<div class="modal modal-blur fade" id="itemPickerModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择商品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="pickerSearch" placeholder="输入编码 / 名称 / 规格 搜索商品" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary" id="btnPickerSearch">搜索</button>
+                </div>
+                <div class="form-hint mb-2" id="pickerHint">勾选商品（支持多选 / 点击行勾选），点「添加所选」批量加入 BOM 明细；「产成品/半成品」类别默认勾选入库，可在明细中自行改勾选方向。</div>
+                <div class="table-responsive" style="max-height:340px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table">
+                        <thead>
+                            <tr><th class="w-1"><input type="checkbox" class="form-check-input" id="pickerCheckAll" title="全选/全不选" /></th><th>编码</th><th>名称</th><th>规格</th><th>类别</th><th>单位</th></tr>
+                        </thead>
+                        <tbody id="pickerResults"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" id="btnPickerAdd">添加所选</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* 勾选「入库」的行整行淡绿色高亮 */
+    #bomBody tr.bom-row-in > td { background-color: rgba(76, 175, 80, 0.12); }
+</style>
+
+@section Scripts {
+    <script>
+        (function () {
+            var unitOptions = @Html.Raw(JsonSerializer.Serialize(unitOptions).Replace("</", "<\\/"));
+            var stepDefaults = @Html.Raw(stepDefaultsJson.Replace("</", "<\\/"));
+            var body = document.getElementById('bomBody');
+            var stepSel = document.getElementById('StepId');
+            var rowCount = document.getElementById('rowCount');
+            var pickerModalEl = document.getElementById('itemPickerModal');
+            var pickerSearch = document.getElementById('pickerSearch');
+            var pickerResults = document.getElementById('pickerResults');
+            var pickerTimer = 0;
+            var pickerModal = (typeof bootstrap !== 'undefined' && bootstrap.Modal)
+                ? bootstrap.Modal.getOrCreateInstance(pickerModalEl) : null;
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function currentDefaults() {
+                var d = stepDefaults[String(stepSel.value)];
+                return d || { baseNum: 0, lossStand: 0, lossRate: '0%', lossValue: 0, lossUnit: '' };
+            }
+
+            function unitSelectHtml(name, cur) {
+                var list = unitOptions.slice();
+                if (cur && list.indexOf(cur) < 0) list.unshift(cur);
+                var h = '<select class="form-select form-select-sm" name="' + name + '" style="min-width:72px">';
+                for (var i = 0; i < list.length; i++) {
+                    h += '<option value="' + esc(list[i]) + '"' + (list[i] === cur ? ' selected' : '') + '>' + esc(list[i]) + '</option>';
+                }
+                return h + '</select>';
+            }
+
+            function refreshCount() {
+                if (rowCount) rowCount.textContent = body.rows.length + ' 行';
+            }
+
+            function reindex() {
+                var fields = ['ItemId', 'BaseNum', 'Unit', 'LossStandValue', 'LossRate', 'LossValue', 'Remark', 'IsProduct'];
+                var rows = body.querySelectorAll('tr');
+                for (var i = 0; i < rows.length; i++) {
+                    for (var k = 0; k < fields.length; k++) {
+                        // IsProduct has TWO same-named inputs per row (hidden false + checkbox true)
+                        var els = rows[i].querySelectorAll('[name$="' + fields[k] + '"]');
+                        for (var j = 0; j < els.length; j++) els[j].name = 'Rows[' + i + '].' + fields[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function itemFromAnchor(a) {
+                return {
+                    id: a.getAttribute('data-id'),
+                    cpbm: a.getAttribute('data-cpbm'),
+                    cpjc: a.getAttribute('data-cpjc'),
+                    cpgg: a.getAttribute('data-cpgg'),
+                    cplb: a.getAttribute('data-cplb'),
+                    unit: a.getAttribute('data-unit'),
+                    isOutput: a.getAttribute('data-isoutput') === '1'
+                };
+            }
+
+            // Returns true if a row was appended; false when the same item already
+            // exists in the SAME direction (in / out) — silently skipped in batch mode.
+            function addRow(item, silent) {
+                var id = String(item.id);
+                if (!id) return false;
+                // Same item MAY be added twice with different directions (in / out);
+                // final direction conflicts are validated server-side on save.
+                var isOut = !!item.isOutput;
+
+                for (var i = 0; i < body.rows.length; i++) {
+                    var dupCb = body.rows[i].querySelector('input[type="checkbox"][name$="IsProduct"]');
+                    if (body.rows[i].getAttribute('data-itemid') === id && dupCb && dupCb.checked === isOut) {
+                        return false;
+                    }
+                }
+
+                var d = currentDefaults();
+                var unit = item.unit || d.lossUnit || '';
+                var cplb = item.cplb || '';
+                var badge = isOut
+                    ? '<span class="badge bg-green-lt">' + esc(cplb) + '</span>'
+                    : '<span class="badge bg-secondary-lt">' + esc(cplb) + '</span>';
+
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                if (isOut) tr.classList.add('bom-row-in');
+                tr.innerHTML =
+                    '<td class="text-center">' +
+                    '<input type="checkbox" class="form-check-input" name="Rows[0].IsProduct" value="true"' + (isOut ? ' checked' : '') + ' title="勾选 = 入库(FIsProduct=1)">' +
+                    '<input type="hidden" name="Rows[0].IsProduct" value="false">' +
+                    '</td>' +
+                    '<td><input type="hidden" name="Rows[0].ItemId" value="' + esc(id) + '">' +
+                    '    <span>' + esc(item.cpbm) + '</span></td>' +
+                    '<td>' + esc(item.cpjc) + '</td>' +
+                    '<td class="text-secondary">' + esc(item.cpgg) + '</td>' +
+                    '<td>' + badge + '</td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[0].BaseNum" value="0.00"></td>' +
+                    '<td>' + unitSelectHtml('Rows[0].Unit', unit) + '</td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[0].LossStandValue" value="' + Number(d.lossStand || 0).toFixed(2) + '"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].LossRate" value="' + esc(d.lossRate) + '"></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2" name="Rows[0].LossValue" value="' + Number(d.lossValue || 0).toFixed(2) + '"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Remark" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger bom-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+                return true;
+            }
+
+            // 基本用量/标准损耗/损耗值：失焦后统一保留 2 位小数
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+            body.addEventListener('blur', function (e) {
+                if (e.target.classList && e.target.classList.contains('dec2')) formatDec2(e.target);
+            }, true);
+
+            function renderPicker(items) {
+                if (!items || items.length === 0) {
+                    pickerResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">未找到匹配商品</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < items.length; i++) {
+                    var p = items[i];
+                    var cplb = p.cplb || '';
+                    var badge = p.isOutput
+                        ? '<span class="badge bg-green-lt">' + esc(cplb) + '</span>'
+                        : '<span class="badge bg-secondary-lt">' + esc(cplb) + '</span>';
+                    h += '<tr class="cursor-pointer" data-id="' + esc(p.id) + '" data-cpbm="' + esc(p.cpbm) + '" data-cpjc="' + esc(p.cpjc) + '" data-cpgg="' + esc(p.cpgg) + '" data-cplb="' + esc(p.cplb) + '" data-unit="' + esc(p.unit) + '" data-isoutput="' + (p.isOutput ? '1' : '0') + '">'
+                        + '<td class="w-1"><input type="checkbox" class="form-check-input picker-check" title="勾选后点「添加所选」批量加入"></td>'
+                        + '<td>' + esc(p.cpbm) + '</td>'
+                        + '<td>' + esc(p.cpjc) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.cpgg) + '</td>'
+                        + '<td>' + badge + '</td>'
+                        + '<td>' + esc(p.unit) + '</td>'
+                        + '</tr>';
+                }
+                pickerResults.innerHTML = h;
+                syncCheckAll();
+            }
+
+            function checkedRows() {
+                var list = [];
+                var trs = pickerResults.querySelectorAll('tr[data-id]');
+                for (var i = 0; i < trs.length; i++) {
+                    var cb = trs[i].querySelector('input.picker-check');
+                    if (cb && cb.checked) list.push(trs[i]);
+                }
+                return list;
+            }
+
+            function syncCheckAll() {
+                var all = document.getElementById('pickerCheckAll');
+                if (!all) return;
+                var trs = pickerResults.querySelectorAll('tr[data-id]');
+                var total = trs.length, checked = checkedRows().length;
+                all.checked = total > 0 && checked === total;
+            }
+
+            function doSearch(kw) {
+                kw = String(kw || '').trim();
+                if (!kw) { pickerResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">请输入关键字搜索</td></tr>'; return; }
+                fetch('/PmsBom/SearchItems?keyword=' + encodeURIComponent(kw))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderPicker(data); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            document.getElementById('btnOpenPicker').addEventListener('click', function () {
+                if (pickerModal) pickerModal.show();
+                pickerSearch.value = '';
+                pickerResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">请输入关键字搜索</td></tr>';
+                var hint = document.getElementById('pickerHint');
+                if (hint) hint.textContent = '勾选商品（支持多选 / 点击行勾选），点「添加所选」批量加入 BOM 明细；「产成品/半成品」类别默认勾选入库，可在明细中自行改勾选方向。';
+                setTimeout(function () { pickerSearch.focus(); }, 150);
+            });
+
+            pickerSearch.addEventListener('input', function () {
+                clearTimeout(pickerTimer);
+                var kw = this.value.trim();
+                if (!kw) { pickerResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">请输入关键字搜索</td></tr>'; return; }
+                pickerTimer = setTimeout(function () { doSearch(kw); }, 300);
+            });
+
+            document.getElementById('btnPickerSearch').addEventListener('click', function () {
+                doSearch(pickerSearch.value);
+            });
+
+            pickerResults.addEventListener('click', function (e) {
+                if (e.target.type === 'checkbox') { syncCheckAll(); return; }
+                var tr = e.target.closest('tr[data-id]');
+                if (!tr) return;
+                var cb = tr.querySelector('input.picker-check');
+                if (cb) cb.checked = !cb.checked;
+                syncCheckAll();
+            });
+
+            document.getElementById('pickerCheckAll').addEventListener('change', function () {
+                var want = this.checked;
+                var cbs = pickerResults.querySelectorAll('tr[data-id] input.picker-check');
+                for (var i = 0; i < cbs.length; i++) cbs[i].checked = want;
+            });
+
+            document.getElementById('btnPickerAdd').addEventListener('click', function () {
+                var rows = checkedRows();
+                if (rows.length === 0) { gonesToast('请先勾选要添加的商品。'); return; }
+                var added = 0, skipped = [];
+                for (var i = 0; i < rows.length; i++) {
+                    var item = itemFromAnchor(rows[i]);
+                    if (addRow(item, true)) added++;
+                    else skipped.push(item.cpjc || item.cpbm);
+                }
+                var hint = document.getElementById('pickerHint');
+                if (hint) hint.textContent = '已添加 ' + added + ' 个商品' +
+                    (skipped.length ? '；跳过同方向重复：' + skipped.join('、') : '') +
+                    '。可继续搜索勾选，或点「关闭」返回明细。';
+                var cbs = pickerResults.querySelectorAll('input.picker-check');
+                for (var j = 0; j < cbs.length; j++) cbs[j].checked = false;
+                syncCheckAll();
+            });
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('bom-del')) {
+                    e.target.closest('tr').remove();
+                    reindex();
+                }
+            });
+
+            // 勾选「入库」→ 整行淡绿色高亮
+            body.addEventListener('change', function (e) {
+                if (e.target.type === 'checkbox' && e.target.name && e.target.name.indexOf('IsProduct') >= 0) {
+                    var tr = e.target.closest('tr');
+                    if (tr) tr.classList.toggle('bom-row-in', e.target.checked);
+                }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

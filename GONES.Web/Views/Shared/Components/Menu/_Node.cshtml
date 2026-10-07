@@ -1,0 +1,57 @@
+@model GONES.Web.Models.MenuNode
+@{
+    var path = Context.Request.Path.Value ?? "";
+    var hasChildren = Model.Children != null && Model.Children.Count > 0;
+    // MenuName / Url are nullable columns: a NULL row must not throw here, it would take down
+    // the shared _Layout and therefore every page in the app.
+    var name = Model.Name ?? "";
+    var url = Model.Url ?? "#";
+    var isActive = !hasChildren && url != "#" && path.StartsWith(url, StringComparison.OrdinalIgnoreCase);
+    // 稳定的折叠组 id（同一进程内 Name 哈希不变）
+    var groupId = "menu-" + Math.Abs(name.GetHashCode()).ToString("x");
+    // 手风琴父容器：仅顶层菜单需要展开互斥，子级独立折叠（避免 data-bs-parent 把父菜单自身收起）
+    var parentId = ViewData["MenuParent"] as string;
+    var chevron = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6l-6 6\" /></svg>";
+    var dot = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"4\" /></svg>";
+}
+<li class="nav-item">
+    @if (hasChildren)
+    {
+        <a class="nav-link" href="#@groupId" data-bs-toggle="collapse" role="button"
+           aria-expanded="false" aria-controls="@groupId">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+                @Html.Raw(chevron)
+            </span>
+            <span class="nav-link-title">@name</span>
+        </a>
+        <ul class="nav flex-column collapse ms-3" id="@groupId" @(Html.Raw(parentId != null ? $"data-bs-parent=\"{parentId}\"" : ""))>
+            @foreach (var child in Model.Children)
+            {
+                var childViewData = new ViewDataDictionary(ViewData);
+                childViewData.Remove("MenuParent");
+                @await Html.PartialAsync("~/Views/Shared/Components/Menu/_Node.cshtml", child, childViewData)
+            }
+        </ul>
+    }
+    else if (url == "#")
+    {
+        @* 未迁移的旧窗体：MenuService.WebRoutes 里没有映射 ⇒ Url 落成 "#"。
+           以前照常渲染成 gones-tab-link，点一下会开一个内容为 "#" 的空白标签页（用户看到的是"点了没反应"）。
+           这里改成禁用态 + 原因提示，既不再产生坏标签页，也让人一眼知道是"还没搬过来"而不是"坏了"。 *@
+        <span class="nav-link disabled" title="该功能尚未迁移到 Web 版" style="cursor:not-allowed">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+                @Html.Raw(dot)
+            </span>
+            <span class="nav-link-title">@name</span>
+        </span>
+    }
+    else
+    {
+        <a class="nav-link gones-tab-link @(isActive ? "active" : "")" href="@url" data-tab-title="@name">
+            <span class="nav-link-icon d-md-none d-lg-inline-block">
+                @Html.Raw(dot)
+            </span>
+            <span class="nav-link-title">@name</span>
+        </a>
+    }
+</li>

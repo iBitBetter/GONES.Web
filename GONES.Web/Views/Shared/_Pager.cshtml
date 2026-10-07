@@ -1,0 +1,65 @@
+@model GONES.Web.Models.PagerViewModel
+@{
+    int totalPages = Model.TotalPages;
+    if (totalPages < 1) totalPages = 1;
+    int cur = Model.Page < 1 ? 1 : Model.Page;
+    if (cur > totalPages) cur = totalPages;
+    int window = 2;
+    int start = System.Math.Max(1, cur - window);
+    int end = System.Math.Min(totalPages, cur + window);
+    string ctrl = string.IsNullOrEmpty(Model.Controller)
+        ? (string)ViewContext.RouteData.Values["controller"]
+        : Model.Controller;
+    // 合并额外透传参数（如人员管理的 depId），保证带过滤条件的列表翻页不丢条件
+    Func<int, System.Collections.Generic.Dictionary<string, object>> route = page =>
+    {
+        var rv = new System.Collections.Generic.Dictionary<string, object> { ["page"] = page, ["pageSize"] = Model.PageSize };
+        if (Model.ExtraValues != null)
+            foreach (var kv in Model.ExtraValues)
+                rv[kv.Key] = kv.Value;
+        return rv;
+    };
+}
+@if (Model.TotalCount > 0)
+{
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3 px-1">
+        <div class="text-secondary small">
+            共 @Model.TotalCount 条 · 第 @cur / @totalPages 页
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            @if (totalPages > 1)
+            {
+                <ul class="pagination pagination-sm m-0">
+                    <li class="page-item @(Model.HasPrev ? "" : "disabled")">
+                        <a class="page-link" href="@Url.Action(Model.Action, ctrl, route(cur - 1))">上一页</a>
+                    </li>
+                    @for (int i = start; i <= end; i++)
+                    {
+                        <li class="page-item @(i == cur ? "active" : "")">
+                            <a class="page-link" href="@Url.Action(Model.Action, ctrl, route(i))">@i</a>
+                        </li>
+                    }
+                    <li class="page-item @(Model.HasNext ? "" : "disabled")">
+                        <a class="page-link" href="@Url.Action(Model.Action, ctrl, route(cur + 1))">下一页</a>
+                    </li>
+                </ul>
+            }
+            <form method="get" class="d-inline-flex align-items-center gap-1">
+                @if (Model.ExtraValues != null)
+                {
+                    @foreach (var kv in Model.ExtraValues)
+                    {
+                        <input type="hidden" name="@kv.Key" value="@kv.Value" />
+                    }
+                }
+                <select name="pageSize" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+                    @foreach (var sz in new[] { 10, 20, 50, 100 })
+                    {
+                        <option value="@sz" selected="@(sz == Model.PageSize)">@sz</option>
+                    }
+                </select>
+                <span class="text-secondary small">条/页</span>
+            </form>
+        </div>
+    </div>
+}

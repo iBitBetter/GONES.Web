@@ -1,0 +1,101 @@
+@model System.Collections.Generic.List<GONES.Model.Pg.t_ERP_Menu>
+@{
+    ViewBag.Title = "菜单管理";
+    var roots = (System.Collections.Generic.List<t_ERP_Menu>)ViewBag.Roots;
+    int currentId = (int)ViewBag.CurrentId;
+}
+<div class="row g-3">
+    <!-- 左侧：主菜单树 -->
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">系统主菜单</h3>
+            </div>
+            <div class="list-group list-group-flush">
+                <a class="list-group-item list-group-item-action @(currentId == 0 ? "active" : "")"
+                   href="/SysMenu?pid=0">系统主菜单列表</a>
+                @foreach (var r in roots)
+                {
+                    <a class="list-group-item list-group-item-action @(currentId == r.ID ? "active" : "")"
+                       href="/SysMenu?pid=@r.ID">@r.MenuName</a>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：子菜单列表 -->
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">子菜单列表</h3>
+                <div class="card-actions">
+                    <a class="btn btn-primary" href="/SysMenu/Create?pid=@currentId">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        新建
+                    </a>
+                </div>
+            </div>
+            @if (TempData["Error"] != null)
+            {
+                <div class="alert alert-danger m-3 mb-0">@TempData["Error"]</div>
+            }
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>菜单类型</th>
+                            <th>打开方式</th>
+                            <th>备注</th>
+                            <th class="w-1">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (Model.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center text-secondary py-4">
+                                    该分组下暂无子菜单，点击右上角"新建"添加。
+                                </td>
+                            </tr>
+                        }
+                        @foreach (var m in Model)
+                        {
+                            <tr>
+                                <td>@m.MenuName</td>
+                                <td>
+                                    @if (m.MenuType == 1)
+                                    {
+                                        <span class="badge bg-blue-lt">功能菜单</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-grey-lt">分组菜单</span>
+                                    }
+                                </td>
+                                <td>@(m.OpenType == 0 ? "普通窗口" : "模态窗口")</td>
+                                <td class="text-secondary">@m.Memo</td>
+                                <td>
+                                    <div class="btn-list flex-nowrap">
+                                        <a class="btn btn-sm" href="/SysMenu/Edit/@m.ID">修改</a>
+                                        <form asp-action="Delete" asp-route-id="@m.ID" method="post">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                    data-confirm
+                                                    data-confirm-title="删除菜单"
+                                                    data-confirm-message="确定删除该菜单吗？"
+                                                    data-confirm-yes="删除"
+                                                    data-confirm-yes-class="btn-danger">删除</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

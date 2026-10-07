@@ -1,0 +1,1557 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model ProduceOrderEditViewModel
+@{
+    ViewBag.Title = "生产单维护";
+    var isNew = Model.InterId == 0;
+    var readOnly = (bool)(ViewBag.ReadOnly ?? false);
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workerOptions = (List<t_PMS_Worker>)ViewBag.WorkerOptions;
+    var deptNames = (Dictionary<int, string>)ViewBag.DeptNames;
+    var rowItems = (Dictionary<int, t_ERP_ITEM>)ViewBag.RowItems;
+    var rowBom = (Dictionary<int, int>)ViewBag.RowBom;
+    var depTree = (List<GONES.Web.Models.DepartmentNode>)ViewBag.DepTree;
+    var stepPreview = (List<ProduceOrderStepPreview>)ViewBag.StepPreview;
+    var matGroups = (List<ProduceOrderBomMaterialGroup>)ViewBag.MaterialGroups;
+    var rows = Model.Rows ?? new List<ProduceOrderRowInput>();
+    Func<bool, string> Dis = ro => ro ? "disabled" : null;
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/PmsProduceOrder">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@(isNew ? "/PmsProduceOrder/Create" : "/PmsProduceOrder/Edit/" + Model.InterId)">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="InterId" value="@Model.InterId" />
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">单据日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required disabled="@Dis(readOnly)" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">生产部门</label>
+                    <div class="position-relative" id="depTreeWrap">
+                        <input type="text" class="form-control" id="DeptName" readonly tabindex="-1"
+                               placeholder="-- 请选择部门 --"
+                               value="@(Model.DeptId.HasValue && deptNames.ContainsKey(Model.DeptId.Value) ? deptNames[Model.DeptId.Value] : "")"
+                               disabled="@Dis(readOnly)" />
+                        <input type="hidden" name="DeptId" id="DeptId" value="@(Model.DeptId ?? 0)" />
+                        <div class="dropdown-menu w-100" id="depTreePanel" style="position:absolute;z-index:1050;max-height:300px;overflow:auto;">
+                            <ul class="list-unstyled mb-0">
+                                @foreach (var node in (List<GONES.Web.Models.DepartmentNode>)ViewBag.DepTree)
+                                {
+                                    @await Html.PartialAsync("~/Views/PmsProduceOrder/_DepSelectNode.cshtml", node)
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">申请人</label>
+                    <select class="form-select" name="ApplyerId" disabled="@Dis(readOnly)">
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in workerOptions)
+                        {
+                            var sel = (Model.ApplyerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">来源要货单号</label>
+                    <input type="text" class="form-control" name="ApplyNo" id="ApplyNo" value="@Model.ApplyNo" readonly tabindex="-1" />
+                    @if (!readOnly)
+                    {
+                        <div class="form-hint">通过下方「引入要货计划单」选择后自动带出。</div>
+                    }
+                </div>
+                <div class="col-md-9">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" disabled="@Dis(readOnly)" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3 class="card-title">产品明细（产出品）</h3>
+            <div class="card-actions">
+                @if (!readOnly)
+                {
+                    <button type="button" class="btn btn-outline-primary me-2" id="btnOpenItemPick">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-plus me-1"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M12 5l0 14" /><path d="M5 12l14 0" /></svg>
+                        添加产品
+                    </button>
+                    <button type="button" class="btn btn-outline-primary me-2" id="btnOpenApplyPick">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-file-import me-1"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M5 8v-3a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2v-3" /><path d="M15 13h-8" /><path d="M10 10l-3 3l3 3" /></svg>
+                        引入要货计划单
+                    </button>
+                }
+                @if (!string.IsNullOrEmpty(Model.PickNo))
+                {
+                    <span class="badge bg-green-lt me-2">已生成领料单 @Model.PickNo</span>
+                }
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:13%;">商品编码</th>
+                            <th style="width:18%;">名称</th>
+                            <th style="width:11%;">规格</th>
+                            <th style="width:9%;">类别</th>
+                            <th style="width:7%;">BOM 单号</th>
+                            <th style="width:11%;">计划数量</th>
+                            <th style="width:7%;">单位</th>
+                            <th style="width:12%;">生产类型</th>
+                            <th style="width:11%;">领料部门</th>
+                            <th style="width:11%;">领料车间</th>
+                            <th style="width:11%;">领料班组</th>
+                            <th style="width:11%;">领料人</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="poBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            t_ERP_ITEM info = null;
+                            rowItems.TryGetValue(r.ItemId, out info);
+                            var bomId = rowBom.ContainsKey(r.ItemId) ? rowBom[r.ItemId] : 0;
+                            var ptype = string.IsNullOrEmpty(r.ProduceType) ? "自制" : r.ProduceType;
+                            <tr data-itemid="@r.ItemId" data-bomid="@bomId" data-cpjc="@(info?.ItemShortName)">
+                                <td>
+                                    <input type="hidden" class="h-itemid" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <span class="c-code">@(info?.ItemCode)</span>
+                                </td>
+                                <td><span class="c-name">@(info?.ItemShortName)</span></td>
+                                <td class="text-secondary"><span class="c-spec">@(info?.ItemSpec)</span></td>
+                                <td><span class="badge bg-secondary-lt c-class">@(info?.ProductCategory)</span></td>
+                                <td>
+                                    @if (bomId > 0)
+                                    {
+                                        <span class="badge bg-green-lt c-bom">@bomId</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-red-lt c-bom">缺失</span>
+                                    }
+                                </td>
+                                <td>
+                                    <input type="hidden" class="po-qty" name="Rows[@ri].PlanNum" value="@r.PlanNum?.ToString("0.00")" />
+                                    <span class="c-qty">@r.PlanNum?.ToString("0.00")</span>
+                                </td>
+                                <td class="text-secondary"><span class="c-unit">@(info?.BaseUnit)</span></td>
+                                <td>
+                                    <input type="hidden" class="h-type" name="Rows[@ri].ProduceType" value="@ptype" />
+                                    <input type="hidden" class="h-srcentry" name="Rows[@ri].SrcEntryId" value="@(r.SrcEntryId ?? 0)" />
+                                    <span class="c-type">@ptype</span>
+                                </td>
+                                <td>
+                                    <input type="hidden" class="h-pdept" name="Rows[@ri].PickDeptId" value="@(r.PickDeptId ?? 0)" />
+                                    <input type="hidden" class="h-pdate" name="Rows[@ri].PickDate" value="@(r.PickDate?.ToString("yyyy-MM-dd"))" />
+                                    <input type="hidden" class="h-ppeople" name="Rows[@ri].PickWorkPeople" value="@r.PickWorkPeople" />
+                                    <input type="hidden" class="h-premark" name="Rows[@ri].PickRemark" value="@r.PickRemark" />
+                                    <span class="c-pdept">@(r.PickDeptId.HasValue && deptNames.ContainsKey(r.PickDeptId.Value) ? deptNames[r.PickDeptId.Value] : "--")</span>
+                                </td>
+                                <td>
+                                    <input type="hidden" class="h-pws" name="Rows[@ri].PickWorkShopId" value="@(r.PickWorkShopId ?? 0)" />
+                                    <span class="c-pws">@(r.PickWorkShopId.HasValue && deptNames.ContainsKey(r.PickWorkShopId.Value) ? deptNames[r.PickWorkShopId.Value] : "--")</span>
+                                </td>
+                                <td>
+                                    <input type="hidden" class="h-pgrp" name="Rows[@ri].PickGroupId" value="@(r.PickGroupId ?? 0)" />
+                                    <span class="c-pgrp">@(r.PickGroupId.HasValue && deptNames.ContainsKey(r.PickGroupId.Value) ? deptNames[r.PickGroupId.Value] : "--")</span>
+                                </td>
+                                <td>
+                                    <input type="hidden" class="h-pwk" name="Rows[@ri].PickWorkerId" value="@(r.PickWorkerId ?? 0)" />
+                                    <span class="c-pwk">@(r.PickWorkerId.HasValue ? (workerOptions.FirstOrDefault(w => w.ID == r.PickWorkerId.Value)?.FName ?? "--") : "--")</span>
+                                </td>
+                                <td>
+                                    @if (!readOnly)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-secondary po-edit" title="编辑">改</button>
+                                        <button type="button" class="btn btn-sm btn-outline-danger po-del" title="删除">删</button>
+                                    }
+                                </td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-header">
+            <h3 class="card-title">原材料明细 / 产品结构（由 BOM 自动展开，可调整原材料领用数量）</h3>
+            <div class="card-actions"><span class="badge bg-secondary-lt" id="matCount">@(matGroups.Count) 组 / @(matGroups.Sum(g => g.Materials.Count + 1)) 行</span></div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm table-vcenter card-table">
+                <thead>
+                    <tr>
+                        <th style="width:7%;">BOMID</th>
+                        <th style="width:9%;">工序名称</th>
+                        <th style="width:16%;">产品名称</th>
+                        <th style="width:10%;">规格型号</th>
+                        <th style="width:9%;">产品分类</th>
+                        <th style="width:6%;">单位</th>
+                        <th class="text-end" style="width:9%;">库存数量</th>
+                        <th class="text-end" style="width:10%;">计划完成数量</th>
+                        <th class="text-end" style="width:10%;">材料需求数量</th>
+                        <th class="text-end" style="width:14%;">领用数量</th>
+                    </tr>
+                </thead>
+                <tbody id="matBody">
+                    @{
+                        var mi = 0;
+                    }
+                    @foreach (var g in matGroups)
+                    {
+                        <tr class="table-light bom-group-header" data-bom-id="@g.BomId">
+                            <td colspan="10">
+                                <a href="javascript:void(0)" class="bom-toggle me-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-chevron-down"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 9l6 6l6 -6" /></svg>
+                                </a>
+                                <strong>BOMID: @g.BomId</strong>
+                                <span class="text-secondary ms-2">工序：@(g.StepName ?? "")</span>
+                            </td>
+                        </tr>
+                        if (g.Output != null)
+                        {
+                            <tr class="bom-group-row bom-group-@g.BomId fw-bold pick-row" data-bomid="@g.BomId" data-itemid="@g.Output.ItemId" data-isproduct="1">
+                                <td>
+                                    <input type="hidden" class="pk-bom" name="PickRows[@mi].BomId" value="@g.BomId" />
+                                    <input type="hidden" class="pk-item" name="PickRows[@mi].ItemId" value="@g.Output.ItemId" />
+                                    <input type="hidden" class="pk-isprod" name="PickRows[@mi].IsProduct" value="true" />
+                                    <input type="hidden" class="pk-use" name="PickRows[@mi].UseNum" value="@string.Format("{0:0.00}", g.Output.UseNum ?? 0m)" />
+                                </td>
+                                <td>@(g.Output.StepName ?? "")</td>
+                                <td>@(g.Output.ItemName ?? "")</td>
+                                <td class="text-secondary">@(g.Output.ItemModel ?? "")</td>
+                                <td class="text-secondary">@(g.Output.ItemCategory ?? "")</td>
+                                <td class="text-secondary">@(g.Output.Unit ?? "")</td>
+                                <td class="text-end">@string.Format("{0:0.00}", g.Output.StockQty ?? 0m)</td>
+                                <td class="text-end">@string.Format("{0:0.00}", g.Output.PlanNum ?? 0m)</td>
+                                <td class="text-end">@string.Format("{0:0.00}", g.Output.NeedNum ?? 0m)</td>
+                                <td class="text-end">@string.Format("{0:0.00}", g.Output.UseNum ?? 0m)</td>
+                            </tr>
+                            mi++;
+                        }
+                        foreach (var m in g.Materials)
+                        {
+                            <tr class="bom-group-row bom-group-@g.BomId pick-row" data-bomid="@g.BomId" data-itemid="@m.ItemId" data-isproduct="0">
+                                <td>
+                                    <input type="hidden" class="pk-bom" name="PickRows[@mi].BomId" value="@g.BomId" />
+                                    <input type="hidden" class="pk-item" name="PickRows[@mi].ItemId" value="@m.ItemId" />
+                                    <input type="hidden" class="pk-isprod" name="PickRows[@mi].IsProduct" value="false" />
+                                </td>
+                                <td>@(m.StepName ?? "")</td>
+                                <td>@(m.ItemName ?? "")</td>
+                                <td class="text-secondary">@(m.ItemModel ?? "")</td>
+                                <td class="text-secondary">@(m.ItemCategory ?? "")</td>
+                                <td class="text-secondary">@(m.Unit ?? "")</td>
+                                <td class="text-end">@string.Format("{0:0.00}", m.StockQty ?? 0m)</td>
+                                <td class="text-end">@string.Format("{0:0.00}", m.PlanNum ?? 0m)</td>
+                                <td class="text-end">@string.Format("{0:0.00}", m.NeedNum ?? 0m)</td>
+                                <td class="text-end">
+                                    @if (readOnly)
+                                    {
+                                        <span class="form-control-plaintext d-inline">@string.Format("{0:0.00}", m.UseNum ?? 0m)</span>
+                                    }
+                                    else
+                                    {
+                                        <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end dec2 pk-use" name="PickRows[@mi].UseNum" value="@string.Format("{0:0.00}", m.UseNum ?? 0m)" style="min-width:80px;" />
+                                    }
+                                </td>
+                            </tr>
+                            mi++;
+                        }
+                    }
+                    @if (matGroups.Count == 0)
+                    {
+                        <tr id="matEmpty"><td colspan="10" class="text-center text-secondary py-3">暂无原材料明细（选择产品后自动生成）</td></tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存生产单并生成领料单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<div class="card mb-3">
+    <div class="card-header" style="cursor:pointer;" onclick="toggleStepSection()">
+        <h3 class="card-title">工序明细（由 BOM 自动展开）</h3>
+        <div class="card-actions">
+            <span class="badge bg-secondary-lt" id="stepCount">@stepPreview.Count 行</span>
+            <a class="card-action" id="stepToggleIcon" title="隐藏/显示"></a>
+        </div>
+    </div>
+    <div id="stepTableWrap">
+    <div class="table-responsive">
+        <table class="table table-sm table-vcenter card-table">
+            <thead>
+                <tr>
+                    <th style="width:12%;">产品</th>
+                    <th style="width:9%;">BOM 单号</th>
+                    <th style="width:10%;">工序</th>
+                    <th style="width:7%;">算法</th>
+                    <th class="text-end" style="width:7%;">工时</th>
+                    <th class="text-end" style="width:7%;">数量</th>
+                    <th class="text-end" style="width:8%;">单件工艺</th>
+                    <th class="text-end" style="width:8%;">工时工艺</th>
+                    <th class="text-end" style="width:7%;">单价</th>
+                    <th style="width:7%;">工时单位</th>
+                    <th style="width:7%;">计价单位</th>
+                    <th class="text-end" style="width:7%;">损耗标准</th>
+                    <th style="width:6%;">损耗率</th>
+                    <th style="width:6%;">损耗单位</th>
+                </tr>
+            </thead>
+            <tbody id="stepBody">
+                @foreach (var s in stepPreview)
+                {
+                    <tr>
+                        <td>@(s.ItemName ?? "")</td>
+                        <td class="text-secondary">@s.BomId</td>
+                        <td>@(s.StepName ?? "")</td>
+                        <td class="text-secondary">@(s.Algo ?? "")</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.Hour ?? 0m)</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.Num ?? 0m)</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.SingleArti ?? 0m)</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.HourArti ?? 0m)</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.Price ?? 0m)</td>
+                        <td class="text-secondary">@(s.WorkHourUnit ?? "")</td>
+                        <td class="text-secondary">@(s.PriceUnit ?? "")</td>
+                        <td class="text-end">@string.Format("{0:0.00}", s.LossStandValue ?? 0m)</td>
+                        <td class="text-secondary">@(s.LossRate ?? "")</td>
+                        <td class="text-secondary">@(s.LossUnit ?? "")</td>
+                    </tr>
+                }
+@if (stepPreview.Count == 0)
+{
+    <tr id="stepEmpty"><td colspan="14" class="text-center text-secondary py-3">暂无工序明细（保存后由 BOM 生成，下方预览在选择产品后即时刷新）</td></tr>
+}
+            </tbody>
+        </table>
+    </div>
+</div>
+</div>
+
+@* 添加产品 / 引入要货计划单 弹窗：复用全局 Tabler modal 组件（与 PmsBom 选择商品弹窗同构） *@
+<div class="modal modal-blur fade" id="itemPickModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="itemPickTitle">添加产品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group mb-2">
+                    <input type="text" class="form-control" id="mItemSearch" placeholder="输入编码 / 名称 / 规格 搜索（仅列出已配置 BOM 的商品），回车检索" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary" id="btnMItemSearch">搜索</button>
+                </div>
+                <div class="table-responsive mb-3" style="max-height:250px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table">
+                        <thead>
+                            <tr><th>产品代码</th><th>产品名称</th><th>规格</th><th>产品分类</th><th>单位</th><th>BomID</th></tr>
+                        </thead>
+                        <tbody id="mItemResults">
+                            <tr><td colspan="6" class="text-center text-secondary py-3">输入关键字检索商品</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="row g-2">
+                    <div class="col-md-2">
+                        <label class="form-label required">计划数量</label>
+                        <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="mQty" value="0.00" />
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">生产类型</label>
+                        <select class="form-select form-select-sm" id="mType">
+                            <option value="自制" selected>自制</option>
+                            <option value="委外">委外</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label required">领料部门</label>
+                        <select class="form-select form-select-sm" id="mDept">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var d in deptOptions)
+                            {
+                                @Html.Raw("<option value=\"" + d.ID + "\">" + Html.Encode(d.DEPName) + "</option>")
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label required">领料车间</label>
+                        <select class="form-select form-select-sm" id="mWs"><option value="">-- 请选择 --</option></select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label">领料班组</label>
+                        <select class="form-select form-select-sm" id="mGrp"><option value="">-- 不指定 --</option></select>
+                    </div>
+                    <div class="col-md-2">
+                        <label class="form-label required">领料人</label>
+                        <select class="form-select form-select-sm" id="mWk"><option value="">-- 请选择 --</option></select>
+                    </div>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-md-2">
+                        <label class="form-label required">领料日期</label>
+                        <input type="date" class="form-control form-control-sm" id="mDate" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">生产人员</label>
+                        <input type="text" class="form-control form-control-sm" id="mPeople" placeholder="默认为选定班组（或车间）下全部人员，可改" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">领料备注</label>
+                        <input type="text" class="form-control form-control-sm" id="mRemark" placeholder="选填" />
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" id="btnMItemOk">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal modal-blur fade" id="applyPickModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">引入要货计划单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-4" style="max-height:360px;overflow:auto;">
+                        <div class="input-group mb-2">
+                            <input type="text" class="form-control form-control-sm" id="mApSearch" placeholder="输入要货计划单号过滤（仅已审核）" autocomplete="off">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btnMApSearch">搜索</button>
+                        </div>
+                        <table class="table table-sm table-vcenter card-table">
+                            <thead><tr><th>单据编号</th><th>单据日期</th><th>申请人</th><th class="text-end">剩余量</th></tr></thead>
+                            <tbody id="mApBills">
+                                <tr><td colspan="4" class="text-center text-secondary py-3">正在加载...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-8" style="max-height:360px;overflow:auto;">
+                        <table class="table table-sm table-vcenter card-table">
+                            <thead><tr><th>BOMID</th><th>产品名称</th><th>规格</th><th>单位</th><th class="text-end">申请数量</th><th class="text-end">剩余量</th><th>状态</th></tr></thead>
+                            <tbody id="mApEntries">
+                                <tr><td colspan="7" class="text-center text-secondary py-3">请先在左侧选择要货计划单</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Inline product form: shown after clicking a product row -->
+                <hr class="my-3" id="apFormHr" style="display:none;" />
+                <div id="apFormPanel" style="display:none;">
+                    <h6 class="mb-2 text-secondary" id="apFormTitle">产品已从要货计划单引入</h6>
+                    <div class="row g-2">
+                        <div class="col-md-2">
+                            <label class="form-label required">计划数量</label>
+                            <input type="number" step="0.01" min="0" class="form-control form-control-sm" id="apQty" value="0.00" />
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">生产类型</label>
+                            <select class="form-select form-select-sm" id="apType">
+                                <option value="自制" selected>自制</option>
+                                <option value="委外">委外</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label required">领料部门</label>
+                            <select class="form-select form-select-sm" id="apDept">
+                                <option value="">-- 请选择 --</option>
+                                @foreach (var d in deptOptions)
+                                {
+                                    @Html.Raw("<option value=\"" + d.ID + "\">" + Html.Encode(d.DEPName) + "</option>")
+                                }
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label required">领料车间</label>
+                            <select class="form-select form-select-sm" id="apWs"><option value="">-- 请选择 --</option></select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">领料班组</label>
+                            <select class="form-select form-select-sm" id="apGrp"><option value="">-- 不指定 --</option></select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label required">领料人</label>
+                            <select class="form-select form-select-sm" id="apWk"><option value="">-- 请选择 --</option></select>
+                        </div>
+                    </div>
+                    <div class="row g-2 mt-1">
+                        <div class="col-md-2">
+                            <label class="form-label required">领料日期</label>
+                            <input type="date" class="form-control form-control-sm" id="apDate" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">生产人员</label>
+                            <input type="text" class="form-control form-control-sm" id="apPeople" placeholder="默认为选定班组（或车间）下全部人员，可改" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">领料备注</label>
+                            <input type="text" class="form-control form-control-sm" id="apRemark" placeholder="选填" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="mApInfo"></span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                <button type="button" class="btn btn-primary" id="btnApAddOne">确定添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('poBody');
+            var rowCount = document.getElementById('rowCount');
+            var stepBody = document.getElementById('stepBody');
+            var matBody = document.getElementById('matBody');
+            var stepCount = document.getElementById('stepCount');
+            var matCount = document.getElementById('matCount');
+            var readOnly = @(readOnly ? "true" : "false");
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+            function n2(v) {
+                var f = parseFloat(v);
+                return isNaN(f) ? '0.00' : f.toFixed(2);
+            }
+
+            function refreshCount() {
+                if (rowCount) rowCount.textContent = body.rows.length + ' 行';
+            }
+
+            function reindex() {
+                var fields = ['ItemId', 'PlanNum', 'ProduceType', 'SrcEntryId', 'PickDeptId', 'PickWorkShopId', 'PickGroupId', 'PickWorkerId', 'PickDate', 'PickWorkPeople', 'PickRemark'];
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < fields.length; k++) {
+                        var el = trs[i].querySelector('[name$="' + fields[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + fields[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            // ---- per-product picking cascade: department -> workshop -> group -> worker ----
+            // The main table is display-only; picks are made inside the itemPickModal.
+            var deptNameMap = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(deptNames).Replace("</", "<\\/"));
+            var workerNameMap = {};
+            @Html.Raw("workerNameMap = " + System.Text.Json.JsonSerializer.Serialize(workerOptions.ToDictionary(w => w.ID.ToString(), w => w.FName)).Replace("</", "<\\/") + ";")
+            var pickNameCache = {};   // id -> name, filled from cascade fetches (workshops / groups / workers)
+            // Guard against stale cascades: a fast change (dept -> workshop) fires two
+            // loadModalCascade calls; the later-resolving one would otherwise re-fill the
+            // group/worker selects and clobber the user's already-made selection. Only the
+            // most recent cascade is allowed to mutate the modal.
+            var cascadeToken = 0;
+            var workerToken = 0;
+
+            function pickName(id) {
+                id = Number(id) || 0;
+                if (!id) return '--';
+                if (deptNameMap && deptNameMap[id]) return deptNameMap[id];
+                if (workerNameMap[id]) return workerNameMap[id];
+                if (pickNameCache[id]) return pickNameCache[id];
+                return '#' + id;
+            }
+
+            function fillSelect(sel, items, emptyText, selectedVal) {
+                if (!sel) return;
+                sel.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var j = 0; j < (items || []).length; j++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[j].id;
+                    opt.textContent = items[j].name;
+                    if (selectedVal && Number(items[j].id) === Number(selectedVal)) opt.selected = true;
+                    sel.appendChild(opt);
+                    pickNameCache[items[j].id] = items[j].name;
+                }
+            }
+
+            // Resolve dept -> (first/saved workshop, saved-or-empty group, first/saved worker)
+            // in one chained request; returns {ws, grp, wk, wsItems, grpItems, wkItems}.
+            function fetchCascade(deptId, tWs, tGrp, tWk) {
+                return fetch('/PmsProduceOrder/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        var wsItems = d.items || [];
+                        for (var i = 0; i < wsItems.length; i++) pickNameCache[wsItems[i].id] = wsItems[i].name;
+                        var ws = tWs || (wsItems.length ? wsItems[0].id : 0);
+                        return fetch('/PmsProduceOrder/GetGroups?workShopId=' + (ws || 0))
+                            .then(function (r2) { return r2.json(); })
+                            .then(function (d2) {
+                                var grpItems = d2.items || [];
+                                for (var k = 0; k < grpItems.length; k++) pickNameCache[grpItems[k].id] = grpItems[k].name;
+                                return fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + (tGrp || ws || 0))
+                                    .then(function (r3) { return r3.json(); })
+                                    .then(function (d3) {
+                                        var wkItems = d3.items || [];
+                                        for (var m = 0; m < wkItems.length; m++) pickNameCache[wkItems[m].id] = wkItems[m].name;
+                                        return {
+                                            ws: ws, grp: tGrp || 0,
+                                            wk: tWk || (wkItems.length ? wkItems[0].id : 0),
+                                            wsItems: wsItems, grpItems: grpItems, wkItems: wkItems
+                                        };
+                                    });
+                            });
+                    });
+            }
+
+            // Default 生产人员 = every worker in the current scope (group if chosen, else
+            // workshop), joined with '、'. User can overwrite it afterwards.
+            // Applies to BOTH entry points: 手工新增 modal (mPeople) and
+            // 引入要货计划单 inline form (apPeople) — same default semantics.
+            function setDefaultPeople(items) {
+                var names = (items || []).map(function (w) { return w.name; }).join('、');
+                var m = document.getElementById('mPeople');
+                if (m) m.value = names;
+                var ap = document.getElementById('apPeople');
+                if (ap) ap.value = names;
+            }
+
+            function orderDateStr() {
+                var d = document.querySelector('input[name="Date"]');
+                return d ? d.value : '';
+            }
+
+            // Fill the modal's workshop / group / worker selects from a dept (with saved targets).
+            // keepPeople=true (edit restore): do not overwrite the saved 生产人员.
+            // noDefaults=true (new product): do not auto-select the first worker or fill 生产人员.
+            function loadModalCascade(deptId, tWs, tGrp, tWk, keepPeople, noDefaults) {
+                var wsSel = document.getElementById('mWs');
+                var grpSel = document.getElementById('mGrp');
+                var wkSel = document.getElementById('mWk');
+                var myToken = ++cascadeToken;
+                if (!deptId) {
+                    fillSelect(wsSel, [], '-- 请选择 --', 0);
+                    fillSelect(grpSel, [], '-- 不指定 --', 0);
+                    fillSelect(wkSel, [], '-- 请选择 --', 0);
+                    if (!keepPeople) setDefaultPeople([]);
+                    return;
+                }
+                fetchCascade(deptId, tWs, tGrp, tWk).then(function (res) {
+                    if (myToken !== cascadeToken) return;   // a newer cascade superseded this one
+                    // Preserve a user selection that is still valid among the freshly
+                    // loaded options; otherwise fall back to the cascade target/default.
+                    // This stops a late-resolving (e.g. workshop-triggered) cascade from
+                    // wiping a group/worker the user already picked.
+                    var curWs = Number(wsSel.value) || 0;
+                    var curGrp = Number(grpSel.value) || 0;
+                    var selWs = res.wsItems.some(function (x) { return x.id == curWs; }) ? curWs : res.ws;
+                    var selGrp = res.grpItems.some(function (x) { return x.id == curGrp; }) ? curGrp : res.grp;
+                    fillSelect(wsSel, res.wsItems, '-- 请选择 --', selWs);
+                    fillSelect(grpSel, res.grpItems, '-- 不指定 --', selGrp);
+                    // Worker list + default 生产人员 follow the LIVE selected group (if any)
+                    // else the workshop. Re-fetch at resolve time so a late-resolving cascade
+                    // honours the group the user picked after this cascade was triggered.
+                    var scopeId = Number(grpSel.value) || res.ws;
+                    fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + scopeId)
+                        .then(function (r) { return r.json(); })
+                        .then(function (wd) {
+                            if (myToken !== cascadeToken) return;
+                            var items = wd.items || [];
+                            var curWk = Number(wkSel.value) || 0;
+                            var selWk = noDefaults ? 0 : (items.some(function (x) { return x.id == curWk; }) ? curWk : (items.length ? items[0].id : 0));
+                            fillSelect(wkSel, items, '-- 请选择 --', selWk);
+                            if (!keepPeople && !noDefaults) setDefaultPeople(items);
+                            // A saved worker may sit outside the chosen scope (picked from the
+                            // workshop before a group was chosen). Merge the workshop scope in.
+                            if (tWk && String(wkSel.value) !== String(tWk) && res.ws) {
+                                fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + res.ws)
+                                    .then(function (r2) { return r2.json(); })
+                                    .then(function (d) {
+                                        var have = {};
+                                        for (var i = 0; i < wkSel.options.length; i++) have[wkSel.options[i].value] = 1;
+                                        (d.items || []).forEach(function (w) {
+                                            if (!have[w.id]) {
+                                                var o = document.createElement('option');
+                                                o.value = w.id;
+                                                o.textContent = w.name;
+                                                wkSel.appendChild(o);
+                                                pickNameCache[w.id] = w.name;
+                                            }
+                                        });
+                                        if (have[String(tWk)] || wkSel.querySelector('option[value="' + tWk + '"]')) wkSel.value = String(tWk);
+                                    })
+                                    .catch(function (e2) { console.error(e2); });
+                            }
+                        })
+                        .catch(function (e2) { console.error(e2); });
+                }).catch(function (e) { console.error(e); });
+            }
+
+            // Reload only the modal's worker list (workshop / group change).
+            // noDefaults=true: do not auto-select first worker or fill 生产人员.
+            function loadModalWorkers(wsId, grpId, keepPeople, noDefaults) {
+                var wkSel = document.getElementById('mWk');
+                var myToken = ++workerToken;
+                fillSelect(wkSel, [], '-- 请选择 --', 0);
+                if (!wsId && !grpId) { if (!keepPeople) setDefaultPeople([]); return; }
+                fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + (grpId || wsId))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (myToken !== workerToken) return;   // a newer worker load superseded this one
+                        fillSelect(wkSel, d.items || [], '-- 请选择 --', 0);
+                        var items = d.items || [];
+                        if (!noDefaults && items.length) wkSel.value = String(items[0].id);
+                        if (!keepPeople && !noDefaults) setDefaultPeople(items);
+                    })
+                    .catch(function (e) { console.error(e); });
+            }
+
+            // Write a resolved pick onto a product row (hidden fields + display cells).
+            // pick = {deptId, wsId, grpId, wkId, date, people, remark}.
+            function applyRowPick(tr, pick) {
+                var map = [['h-pdept', 'c-pdept', pick.deptId], ['h-pws', 'c-pws', pick.wsId],
+                           ['h-pgrp', 'c-pgrp', pick.grpId], ['h-pwk', 'c-pwk', pick.wkId]];
+                for (var i = 0; i < map.length; i++) {
+                    var h = tr.querySelector('.' + map[i][0]);
+                    var c = tr.querySelector('.' + map[i][1]);
+                    var v = Number(map[i][2]) || 0;
+                    if (h) h.value = v;
+                    if (c) c.textContent = v ? pickName(v) : '--';
+                }
+                var hd = tr.querySelector('.h-pdate');
+                if (hd) hd.value = pick.date || '';
+                var hp = tr.querySelector('.h-ppeople');
+                if (hp) hp.value = pick.people || '';
+                var hr = tr.querySelector('.h-premark');
+                if (hr) hr.value = pick.remark || '';
+            }
+
+            // Default pick for imported rows: order dept -> first workshop -> first worker.
+            var defaultPickPromise = null;
+            function resolveDefaultPick() {
+                if (!defaultPickPromise) {
+                    var deptId = parseInt(document.getElementById('DeptId').value, 10) || 0;
+                    defaultPickPromise = deptId ? fetchCascade(deptId, null, null, null)
+                        : Promise.resolve({ ws: 0, grp: 0, wk: 0 });
+                }
+                return defaultPickPromise;
+            }
+
+            // Append a display-only product row. pick = {deptId, wsId, grpId, wkId};
+            // pass null and call applyRowPick later (imported rows get the default pick).
+            function addRow(item, qty, pick) {
+                var id = String(item.id);
+                if (!id) return false;
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-itemid') === id) { gonesToast('该商品已在产品明细中！'); return false; }
+                }
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                tr.setAttribute('data-bomid', String(item.bomId || 0));
+                tr.setAttribute('data-cpjc', item.cpjc || '');
+                tr.innerHTML =
+                    '<td><input type="hidden" class="h-itemid" name="Rows[0].ItemId" value="' + esc(id) + '">' +
+                    '    <input type="hidden" class="h-srcentry" name="Rows[0].SrcEntryId" value="' + esc(String(item.srcEntryId || 0)) + '">' +
+                    '    <span class="c-code">' + esc(item.cpbm) + '</span></td>' +
+                    '<td><span class="c-name">' + esc(item.cpjc) + '</span></td>' +
+                    '<td class="text-secondary"><span class="c-spec">' + esc(item.cpgg) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt c-class">' + esc(item.cplb) + '</span></td>' +
+                    '<td><span class="badge bg-green-lt c-bom">' + esc(item.bomId) + '</span></td>' +
+                    '<td><input type="hidden" class="po-qty" name="Rows[0].PlanNum" value="' + n2(qty) + '">' +
+                    '    <span class="c-qty">' + n2(qty) + '</span></td>' +
+                    '<td class="text-secondary"><span class="c-unit">' + esc(item.unit) + '</span></td>' +
+                    '<td><input type="hidden" class="h-type" name="Rows[0].ProduceType" value="自制">' +
+                    '    <span class="c-type">自制</span></td>' +
+                    '<td><input type="hidden" class="h-pdept" name="Rows[0].PickDeptId" value="0"><span class="c-pdept">--</span></td>' +
+                    '<td><input type="hidden" class="h-pws" name="Rows[0].PickWorkShopId" value="0"><span class="c-pws">--</span></td>' +
+                    '<td><input type="hidden" class="h-pgrp" name="Rows[0].PickGroupId" value="0"><span class="c-pgrp">--</span></td>' +
+                    '<td><input type="hidden" class="h-pwk" name="Rows[0].PickWorkerId" value="0"><span class="c-pwk">--</span></td>' +
+                    '<input type="hidden" class="h-pdate" name="Rows[0].PickDate" value="">' +
+                    '<input type="hidden" class="h-ppeople" name="Rows[0].PickWorkPeople" value="">' +
+                    '<input type="hidden" class="h-premark" name="Rows[0].PickRemark" value="">' +
+                    '<td>' + (readOnly ? '' :
+                    '    <button type="button" class="btn btn-sm btn-outline-secondary po-edit" title="编辑">改</button>' +
+                    '    <button type="button" class="btn btn-sm btn-outline-danger po-del" title="删除">删</button>') + '</td>';
+                body.appendChild(tr);
+                reindex();
+                if (pick) applyRowPick(tr, pick);
+                refreshPreview();
+                return true;
+            }
+
+            // ---- BOM expansion preview (server is authoritative on save) ----
+            function clearPreview() {
+                stepBody.innerHTML = '';
+                matBody.innerHTML = '';
+            }
+
+            function renderStep(s, productName) {
+                var tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td>' + esc(productName) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.bomId) + '</td>' +
+                    '<td>' + esc(s.stepName) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.algo) + '</td>' +
+                    '<td class="text-end">' + n2(s.hour) + '</td>' +
+                    '<td class="text-end">' + n2(s.num) + '</td>' +
+                    '<td class="text-end">' + n2(s.singleArti) + '</td>' +
+                    '<td class="text-end">' + n2(s.hourArti) + '</td>' +
+                    '<td class="text-end">' + n2(s.price) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.workHourUnit) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.priceUnit) + '</td>' +
+                    '<td class="text-end">' + n2(s.lossStandValue) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.lossRate) + '</td>' +
+                    '<td class="text-secondary">' + esc(s.lossUnit) + '</td>';
+                stepBody.appendChild(tr);
+            }
+
+            function renderGroup(g) {
+                if (!g) return;
+                var bomId = g.bomId || 0;
+                var bid = 'bom-group-' + bomId;
+                var header = document.createElement('tr');
+                header.className = 'table-light bom-group-header';
+                header.setAttribute('data-bom-id', bomId);
+                header.innerHTML =
+                    '<td colspan="10">' +
+                    '  <a href="javascript:void(0)" class="bom-toggle me-2">' +
+                    '    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-chevron-down"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 9l6 6l6 -6" /></svg>' +
+                    '  </a>' +
+                    '  <strong>BOMID: ' + esc(bomId) + '</strong>' +
+                    '  <span class="text-secondary ms-2">工序：' + esc(g.stepName || '') + '</span>' +
+                    '</td>';
+                matBody.appendChild(header);
+
+                if (g.output) {
+                    var otr = document.createElement('tr');
+                    otr.className = 'bom-group-row ' + bid + ' fw-bold pick-row';
+                    otr.setAttribute('data-bomid', bomId);
+                    otr.setAttribute('data-itemid', g.output.itemId || 0);
+                    otr.setAttribute('data-isproduct', '1');
+                    otr.innerHTML =
+                        '<td>' +
+                        '  <input type="hidden" class="pk-bom" name="PickRows[0].BomId" value="' + esc(bomId) + '">' +
+                        '  <input type="hidden" class="pk-item" name="PickRows[0].ItemId" value="' + esc(g.output.itemId || 0) + '">' +
+                        '  <input type="hidden" class="pk-isprod" name="PickRows[0].IsProduct" value="true">' +
+                        '  <input type="hidden" class="pk-use" name="PickRows[0].UseNum" value="' + n2(g.output.planNum) + '">' +
+                        '</td>' +
+                        '<td>' + esc(g.output.stepName || '') + '</td>' +
+                        '<td>' + esc(g.output.itemName || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(g.output.itemModel || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(g.output.itemCategory || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(g.output.unit || '') + '</td>' +
+                        '<td class="text-end">' + n2(g.output.stockQty) + '</td>' +
+                        '<td class="text-end">' + n2(g.output.planNum) + '</td>' +
+                        '<td class="text-end">' + n2(g.output.needNum) + '</td>' +
+                        '<td class="text-end">' + n2(g.output.planNum) + '</td>';
+                    matBody.appendChild(otr);
+                }
+
+                (g.materials || []).forEach(function (m) {
+                    var tr = document.createElement('tr');
+                    tr.className = 'bom-group-row ' + bid + ' pick-row';
+                    tr.setAttribute('data-bomid', bomId);
+                    tr.setAttribute('data-itemid', m.itemId || 0);
+                    tr.setAttribute('data-isproduct', '0');
+                    var useCell = readOnly
+                        ? '<span class="form-control-plaintext d-inline">' + n2(m.needNum) + '</span>'
+                        : '<input type="number" step="0.01" min="0" class="form-control form-control-sm text-end dec2 pk-use" name="PickRows[0].UseNum" value="' + n2(m.needNum) + '" style="min-width:80px;">';
+                    tr.innerHTML =
+                        '<td>' +
+                        '  <input type="hidden" class="pk-bom" name="PickRows[0].BomId" value="' + esc(bomId) + '">' +
+                        '  <input type="hidden" class="pk-item" name="PickRows[0].ItemId" value="' + esc(m.itemId || 0) + '">' +
+                        '  <input type="hidden" class="pk-isprod" name="PickRows[0].IsProduct" value="false">' +
+                        '</td>' +
+                        '<td>' + esc(m.stepName || '') + '</td>' +
+                        '<td>' + esc(m.itemName || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(m.itemModel || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(m.itemCategory || '') + '</td>' +
+                        '<td class="text-secondary">' + esc(m.unit || '') + '</td>' +
+                        '<td class="text-end">' + n2(m.stockQty) + '</td>' +
+                        '<td class="text-end">' + n2(m.planNum) + '</td>' +
+                        '<td class="text-end">' + n2(m.needNum) + '</td>' +
+                        '<td class="text-end">' + useCell + '</td>';
+                    matBody.appendChild(tr);
+                });
+            }
+
+            // Pick rows are rendered dynamically; renumber them so MVC binds the list.
+            function reindexPickRows() {
+                if (!matBody) return;
+                var fields = { 'pk-bom': 'BomId', 'pk-item': 'ItemId', 'pk-isprod': 'IsProduct', 'pk-use': 'UseNum' };
+                var trs = matBody.querySelectorAll('tr.pick-row');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var cls in fields) {
+                        var el = trs[i].querySelector('.' + cls);
+                        if (el) el.name = 'PickRows[' + i + '].' + fields[cls];
+                    }
+                }
+            }
+
+            function refreshPreview() {
+                if (readOnly) return;
+                var trs = body.querySelectorAll('tr');
+                var jobs = [];
+                for (var i = 0; i < trs.length; i++) {
+                    var tr = trs[i];
+                    var bomId = tr.getAttribute('data-bomid');
+                    if (!bomId || bomId === '0') continue;
+                    var qtyEl = tr.querySelector('.po-qty');
+                    var qty = qtyEl ? (parseFloat(qtyEl.value) || 0) : 0;
+                    var itemId = parseInt(tr.getAttribute('data-itemid'), 10) || 0;
+                    jobs.push({ bomId: bomId, itemId: itemId, qty: qty, name: tr.getAttribute('data-cpjc') || '' });
+                }
+                if (jobs.length === 0) {
+                    clearPreview();
+                    stepBody.innerHTML = '<tr><td colspan="14" class="text-center text-secondary py-3">暂无工序明细</td></tr>';
+                    matBody.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3">暂无原材料明细</td></tr>';
+                    if (stepCount) stepCount.textContent = '0 行';
+                    if (matCount) matCount.textContent = '0 组 / 0 行';
+                    return;
+                }
+                Promise.all(jobs.map(function (j) {
+                    return fetch('/PmsProduceOrder/BomDetail?bomId=' + encodeURIComponent(j.bomId) + '&itemId=' + encodeURIComponent(j.itemId) + '&planNum=' + encodeURIComponent(j.qty))
+                        .then(function (r) { return r.json(); })
+                        .then(function (d) { return { data: d, name: j.name }; });
+                })).then(function (results) {
+                    clearPreview();
+                    var sc = 0, gc = 0, rc = 0;
+                    results.forEach(function (r) {
+                        if (r.data.step) { renderStep(r.data.step, r.name); sc++; }
+                        if (r.data.group) { renderGroup(r.data.group); gc++; rc += (r.data.group.materials || []).length + (r.data.group.output ? 1 : 0); }
+                    });
+                    if (sc === 0) stepBody.innerHTML = '<tr><td colspan="14" class="text-center text-secondary py-3">暂无工序明细</td></tr>';
+                    if (gc === 0) matBody.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-3">暂无原材料明细</td></tr>';
+                    if (stepCount) stepCount.textContent = sc + ' 行';
+                    if (matCount) matCount.textContent = gc + ' 组 / ' + rc + ' 行';
+                    reindexPickRows();
+                }).catch(function (e) { console.error(e); });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('po-del')) {
+                    e.target.closest('tr').remove();
+                    reindex();
+                    refreshPreview();
+                } else if (e.target.classList.contains('po-edit')) {
+                    openItemPickModal(e.target.closest('tr'));
+                }
+            });
+
+            // ---- item pick modal (add / edit product rows) ----
+            var itemModalEl = document.getElementById('itemPickModal');
+            var itemModal = itemModalEl ? bootstrap.Modal.getOrCreateInstance(itemModalEl) : null;
+            var mItemSearch = document.getElementById('mItemSearch');
+            var mItemResults = document.getElementById('mItemResults');
+            var mSearchTimer = 0;
+            var mSelectedItem = null;   // product highlighted in the modal grid
+            var editingRow = null;      // tr being edited; null = adding a new product
+
+            function mDoSearch(kw) {
+                kw = String(kw || '').trim();
+                mItemResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">搜索中...</td></tr>';
+                fetch('/PmsProduceOrder/SearchItems?keyword=' + encodeURIComponent(kw))
+                    .then(function (r) { return r.json(); })
+                    .then(function (items) {
+                        if (!items || items.length === 0) {
+                            mItemResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">未找到匹配商品（或该商品未配置 BOM）</td></tr>';
+                            return;
+                        }
+                        var h = '';
+                        for (var i = 0; i < items.length; i++) {
+                            var p = items[i];
+                            h += '<tr data-id="' + esc(p.id) + '" data-cpbm="' + esc(p.cpbm) + '" data-cpjc="' + esc(p.cpjc) +
+                                '" data-cpgg="' + esc(p.cpgg) + '" data-cplb="' + esc(p.cplb) + '" data-unit="' + esc(p.unit) +
+                                '" data-bomid="' + esc(p.bomId) + '" style="cursor:pointer;">' +
+                                '<td>' + esc(p.cpbm) + '</td><td>' + esc(p.cpjc) + '</td>' +
+                                '<td class="text-secondary">' + esc(p.cpgg) + '</td>' +
+                                '<td><span class="badge bg-secondary-lt">' + esc(p.cplb) + '</span></td>' +
+                                '<td class="text-secondary">' + esc(p.unit) + '</td>' +
+                                '<td><span class="badge bg-green-lt">' + esc(p.bomId) + '</span></td></tr>';
+                        }
+                        mItemResults.innerHTML = h;
+                    })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (mItemSearch) {
+                mItemSearch.addEventListener('input', function () {
+                    clearTimeout(mSearchTimer);
+                    var kw = this.value.trim();
+                    if (!kw) return;
+                    mSearchTimer = setTimeout(function () { mDoSearch(kw); }, 300);
+                });
+                mItemSearch.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') { e.preventDefault(); mDoSearch(this.value); }
+                });
+                document.getElementById('btnMItemSearch').addEventListener('click', function () {
+                    mDoSearch(mItemSearch.value);
+                    mItemSearch.focus();
+                });
+            }
+
+            mItemResults.addEventListener('click', function (e) {
+                var tr = e.target.closest('tr[data-id]');
+                if (!tr) return;
+                var trs = mItemResults.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) trs[i].classList.remove('table-primary');
+                tr.classList.add('table-primary');
+                mSelectedItem = {
+                    id: tr.getAttribute('data-id'), cpbm: tr.getAttribute('data-cpbm'),
+                    cpjc: tr.getAttribute('data-cpjc'), cpgg: tr.getAttribute('data-cpgg'),
+                    cplb: tr.getAttribute('data-cplb'), unit: tr.getAttribute('data-unit'),
+                    bomId: tr.getAttribute('data-bomid')
+                };
+            });
+
+            // Open the modal: tr = product row to edit, or null to add a new product.
+            function openItemPickModal(tr) {
+                if (readOnly || !itemModal) return;
+                editingRow = tr || null;
+                mSelectedItem = null;
+                mItemResults.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">输入关键字检索商品</td></tr>';
+                mItemSearch.value = '';
+                document.getElementById('itemPickTitle').textContent = editingRow ? '编辑产品' : '添加产品';
+                document.getElementById('btnMItemOk').textContent = editingRow ? '保存修改' : '确定添加';
+                var deptSel = document.getElementById('mDept');
+                if (editingRow) {
+                    document.getElementById('mQty').value = editingRow.querySelector('.po-qty').value;
+                    document.getElementById('mType').value = editingRow.querySelector('.h-type').value || '自制';
+                    var deptId = parseInt(editingRow.querySelector('.h-pdept').value, 10) || 0;
+                    deptSel.value = deptId || '';
+                    // keepPeople = true: do not overwrite the saved 生产人员 with the default
+                    loadModalCascade(deptId,
+                        parseInt(editingRow.querySelector('.h-pws').value, 10) || 0,
+                        parseInt(editingRow.querySelector('.h-pgrp').value, 10) || 0,
+                        parseInt(editingRow.querySelector('.h-pwk').value, 10) || 0, true);
+                    document.getElementById('mDate').value = editingRow.querySelector('.h-pdate').value || orderDateStr();
+                    document.getElementById('mPeople').value = editingRow.querySelector('.h-ppeople').value || '';
+                    document.getElementById('mRemark').value = editingRow.querySelector('.h-premark').value || '';
+                } else {
+                    document.getElementById('mQty').value = '0.00';
+                    document.getElementById('mType').value = '自制';
+                    var od = parseInt(document.getElementById('DeptId').value, 10) || 0;
+                    deptSel.value = od || '';
+                    loadModalCascade(od, null, null, null, false, true);
+                    document.getElementById('mDate').value = orderDateStr();
+                }
+                itemModal.show();
+                mItemSearch.focus();
+                mDoSearch('');   // pre-load all BOM products
+            }
+
+            var btnOpenItem = document.getElementById('btnOpenItemPick');
+            if (btnOpenItem) btnOpenItem.addEventListener('click', function () { openItemPickModal(null); });
+
+            var mDeptSel = document.getElementById('mDept');
+            if (mDeptSel) {
+                mDeptSel.addEventListener('change', function () {
+                    loadModalCascade(parseInt(this.value, 10) || 0, null, null, null);
+                });
+            }
+
+            var mWsSel = document.getElementById('mWs');
+            var mGrpSel = document.getElementById('mGrp');
+            if (mWsSel) {
+                mWsSel.addEventListener('change', function () {
+                    // workshop changed: reload its groups (reset to 不指定) and workers
+                    loadModalCascade(parseInt(document.getElementById('mDept').value, 10) || 0,
+                        parseInt(this.value, 10) || 0, 0, 0);
+                });
+            }
+            if (mGrpSel) {
+                mGrpSel.addEventListener('change', function () {
+                    // group changed: workers must come from the group scope
+                    // (workshop scope again when the group is cleared)
+                    loadModalWorkers(parseInt(mWsSel.value, 10) || 0, parseInt(this.value, 10) || 0);
+                });
+            }
+
+            // Confirm: add a row / save the edited row. The modal stays open when adding
+            // so several products can be entered in a row (selection & qty reset each time).
+            document.getElementById('btnMItemOk').addEventListener('click', function () {
+                if (!editingRow && !mSelectedItem) { gonesToast('请先在列表中选择一个产品！'); return; }
+                var qty = parseFloat(document.getElementById('mQty').value) || 0;
+                if (qty <= 0) { gonesToast('计划数量必须大于 0！'); return; }
+                var pick = {
+                    deptId: parseInt(document.getElementById('mDept').value, 10) || 0,
+                    wsId: parseInt(document.getElementById('mWs').value, 10) || 0,
+                    grpId: parseInt(document.getElementById('mGrp').value, 10) || 0,
+                    wkId: parseInt(document.getElementById('mWk').value, 10) || 0,
+                    date: document.getElementById('mDate').value,
+                    people: document.getElementById('mPeople').value,
+                    remark: document.getElementById('mRemark').value
+                };
+                if (!pick.deptId) { gonesToast('请选择领料部门！'); return; }
+                if (!pick.wsId) { gonesToast('请选择领料车间！'); return; }
+                if (!pick.wkId) { gonesToast('请选择领料人！'); return; }
+                var type = document.getElementById('mType').value;
+                if (editingRow) {
+                    var tr = editingRow;
+                    tr.querySelector('.po-qty').value = qty.toFixed(2);
+                    tr.querySelector('.c-qty').textContent = qty.toFixed(2);
+                    tr.querySelector('.h-type').value = type;
+                    tr.querySelector('.c-type').textContent = type;
+                    applyRowPick(tr, pick);
+                    editingRow = null;
+                    refreshPreview();
+                    itemModal.hide();
+                } else {
+                    addRow(mSelectedItem, qty, pick);
+                    mSelectedItem = null;
+                    var selTr = mItemResults.querySelector('tr.table-primary');
+                    if (selTr) selTr.classList.remove('table-primary');
+                    document.getElementById('mQty').value = '0.00';
+                }
+            });
+
+            // ---- goods apply bill import modal ----
+            var applyModalEl = document.getElementById('applyPickModal');
+            var applyModal = applyModalEl ? bootstrap.Modal.getOrCreateInstance(applyModalEl) : null;
+            var mApSearch = document.getElementById('mApSearch');
+            var mApBills = document.getElementById('mApBills');
+            var mApEntries = document.getElementById('mApEntries');
+            var mApInfo = document.getElementById('mApInfo');
+            var mApTimer = 0;
+            var mSelectedBill = null;
+            var currentProduceInterId = @Model.InterId;
+
+            function mApLoadBills(kw) {
+                fetch('/PmsProduceOrder/SearchApplyBills?keyword=' + encodeURIComponent(String(kw || '').trim()))
+                    .then(function (r) { return r.json(); })
+                    .then(function (items) {
+                        if (!items || items.length === 0) {
+                            mApBills.innerHTML = '<tr><td colspan="3" class="text-center text-secondary py-3">未找到已审核的要货计划单</td></tr>';
+                            return;
+                        }
+                        var h = '';
+                        for (var i = 0; i < items.length; i++) {
+                            var b = items[i];
+                                h += '<tr data-interid="' + esc(b.interId) + '" data-billno="' + esc(b.billNo) +
+                                '" data-empid="' + esc(b.empId) + '" data-empname="' + esc(b.empName) + '" style="cursor:pointer;">' +
+                                '<td>' + esc(b.billNo) + '</td><td class="text-secondary">' + esc(b.date) + '</td><td>' + esc(b.empName) +
+                                '</td><td class="text-end' + (b.remain < 0 ? ' text-red' : '') + '">' + n2(b.remain) + '</td></tr>';
+                        }
+                        mApBills.innerHTML = h;
+                    })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (mApSearch) {
+                mApSearch.addEventListener('input', function () {
+                    clearTimeout(mApTimer);
+                    mApTimer = setTimeout(function () { mApLoadBills(mApSearch.value); }, 300);
+                });
+                document.getElementById('btnMApSearch').addEventListener('click', function () {
+                    mApLoadBills(mApSearch.value);
+                    mApSearch.focus();
+                });
+            }
+
+            mApBills.addEventListener('click', function (e) {
+                var tr = e.target.closest('tr[data-interid]');
+                if (!tr) return;
+                var trs = mApBills.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) trs[i].classList.remove('table-primary');
+                tr.classList.add('table-primary');
+                mSelectedBill = {
+                    interId: tr.getAttribute('data-interid'), billNo: tr.getAttribute('data-billno'),
+                    empId: tr.getAttribute('data-empid'), empName: tr.getAttribute('data-empname')
+                };
+                mApEntries.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3">加载明细中...</td></tr>';
+                mApInfo.textContent = '';
+                fetch('/PmsProduceOrder/ApplyBillEntries?interId=' + encodeURIComponent(mSelectedBill.interId) + '&excludeProduceInterId=' + encodeURIComponent(currentProduceInterId))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        if (!d.rows || d.rows.length === 0) {
+                            mApEntries.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3">该单据没有可引入的产品行</td></tr>';
+                            return;
+                        }
+                        var h = '';
+                        for (var i = 0; i < d.rows.length; i++) {
+                            var p = d.rows[i];
+                            var stTxt = p.entryStatus == 2 ? '全部导入' : (p.entryStatus == 1 ? '部分导入' : '未导入');
+                            var stCls = p.entryStatus == 2 ? 'bg-green-lt' : (p.entryStatus == 1 ? 'bg-yellow-lt' : 'bg-secondary-lt');
+                            h += '<tr data-itemid="' + esc(p.itemId) + '" data-entryid="' + esc(p.entryId) + '" data-cpbm="' + esc(p.cpbm) + '" data-cpjc="' + esc(p.cpjc) +
+                                '" data-cpgg="' + esc(p.cpgg) + '" data-cplb="' + esc(p.cplb) + '" data-unit="' + esc(p.unit) +
+                                '" data-bomid="' + esc(p.bomId) + '" data-qty="' + esc(p.remain) + '" style="cursor:pointer;">' +
+                                '<td><span class="badge bg-green-lt">' + esc(p.bomId) + '</span></td>' +
+                                '<td>' + esc(p.cpjc) + '</td>' +
+                                '<td class="text-secondary">' + esc(p.cpgg) + '</td>' +
+                                '<td class="text-secondary">' + esc(p.unit) + '</td>' +
+                                '<td class="text-end">' + n2(p.qty) + '</td>' +
+                                '<td class="text-end' + (p.remain < 0 ? ' text-red' : '') + '">' + n2(p.remain) + '</td>' +
+                                '<td><span class="badge ' + stCls + '">' + stTxt + '</span></td></tr>';
+                        }
+                        mApEntries.innerHTML = h;
+                        mApInfo.textContent = d.skipped > 0
+                            ? ('注：另有 ' + d.skipped + ' 行商品未配置 BOM，无法引入。')
+                            : '';
+                    })
+                    .catch(function (err) { console.error(err); });
+            });
+
+            // ---- Inline form panel for apply-entry product selection ----
+            var mSelectedApEntry = null;
+            var apFormPanel = document.getElementById('apFormPanel');
+            var apFormHr = document.getElementById('apFormHr');
+            var apCascadeToken = 0;
+            var apWorkerToken = 0;
+
+            function showApForm(entry) {
+                mSelectedApEntry = entry;
+                document.getElementById('apQty').value = n2(entry.qty);
+                document.getElementById('apType').value = '自制';
+                document.getElementById('apDate').value = orderDateStr();
+                document.getElementById('apPeople').value = '';
+                document.getElementById('apRemark').value = '';
+                var od = parseInt(document.getElementById('DeptId').value, 10) || 0;
+                document.getElementById('apDept').value = od || '';
+                // noDefaults=false: fill 生产人员 with the current scope's members right
+                // away (workshop scope at this point); picking a group refines it via
+                // loadApWorkers. keepPeople is not a concern — apPeople was just cleared.
+                loadApCascade(od, null, null, null, true);
+                apFormPanel.style.display = '';
+                apFormHr.style.display = '';
+            }
+
+            function hideApForm() {
+                apFormPanel.style.display = 'none';
+                apFormHr.style.display = 'none';
+                mSelectedApEntry = null;
+            }
+
+            // Cascade for inline form: dept -> workshop -> group -> worker
+            function loadApCascade(deptId, tWs, tGrp, tWk, noDefaults) {
+                var wsSel = document.getElementById('apWs');
+                var grpSel = document.getElementById('apGrp');
+                var wkSel = document.getElementById('apWk');
+                var myToken = ++apCascadeToken;
+                if (!deptId) { fillSelect(wsSel,[],'-- 请选择 --',0); fillSelect(grpSel,[],'-- 不指定 --',0); fillSelect(wkSel,[],'-- 请选择 --',0); if (!noDefaults) setDefaultPeople([]); return; }
+                fetchCascade(deptId, tWs, tGrp, tWk).then(function (res) {
+                    if (myToken !== apCascadeToken) return;
+                    var curWs = Number(wsSel.value) || 0;
+                    var curGrp = Number(grpSel.value) || 0;
+                    var selWs = res.wsItems.some(function(x){return x.id==curWs;}) ? curWs : res.ws;
+                    var selGrp = res.grpItems.some(function(x){return x.id==curGrp;}) ? curGrp : res.grp;
+                    fillSelect(wsSel, res.wsItems, '-- 请选择 --', selWs);
+                    fillSelect(grpSel, res.grpItems, '-- 不指定 --', selGrp);
+                    var scopeId = Number(grpSel.value) || res.ws;
+                    fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + scopeId)
+                        .then(function(r){return r.json();})
+                        .then(function(wd){
+                            if (myToken !== apCascadeToken) return;
+                            var items = wd.items || [];
+                            var curWk = Number(wkSel.value) || 0;
+                            var selWk = (items.some(function(x){return x.id==curWk;}) && curWk) ? curWk : (noDefaults ? 0 : (items.length ? items[0].id : 0));
+                            fillSelect(wkSel, items, '-- 请选择 --', selWk);
+                            if (!noDefaults) setDefaultPeople(items);
+                            if (tWk && String(wkSel.value)!==String(tWk) && res.ws) {
+                                fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId='+res.ws)
+                                .then(function(r2){return r2.json();})
+                                .then(function(d){
+                                    var have={}; for(var i=0;i<wkSel.options.length;i++) have[wkSel.options[i].value]=1;
+                                    (d.items||[]).forEach(function(w){ if(!have[w.id]){ var o=document.createElement('option'); o.value=w.id; o.textContent=w.name; wkSel.appendChild(o); pickNameCache[w.id]=w.name; } });
+                                    if (have[String(tWk)] || wkSel.querySelector('option[value="'+tWk+'"]')) wkSel.value = String(tWk);
+                                }).catch(function(e2){console.error(e2);});
+                            }
+                        }).catch(function(e2){console.error(e2);});
+                }).catch(function(e){console.error(e);});
+            }
+
+            // Worker reload for inline form (workshop/group change)
+            // noDefaults=true: do not auto-select first worker.
+            // fillPeople=true: auto-fill 生产人员 with all workers in the chosen scope.
+            function loadApWorkers(wsId, grpId, noDefaults, fillPeople) {
+                var wkSel = document.getElementById('apWk');
+                var myToken = ++apWorkerToken;
+                fillSelect(wkSel, [], '-- 请选择 --', 0);
+                if (!wsId && !grpId) { if (fillPeople) setDefaultPeople([]); return; }
+                fetch('/PmsProduceOrder/GetWorkers?groupOrWorkShopId=' + (grpId || wsId))
+                    .then(function(r){return r.json();})
+                    .then(function(d){
+                        if (myToken !== apWorkerToken) return;
+                        fillSelect(wkSel, d.items||[], '-- 请选择 --', 0);
+                        var items = d.items||[];
+                        if (items.length && !noDefaults) wkSel.value=String(items[0].id);
+                        if (fillPeople) setDefaultPeople(items);
+                    }).catch(function(e){console.error(e);});
+            }
+
+            // Wire up inline form cascade events
+            document.getElementById('apDept').addEventListener('change', function () {
+                loadApCascade(parseInt(this.value, 10) || 0, null, null, null, true);
+            });
+            document.getElementById('apWs').addEventListener('change', function () {
+                var grpVal = parseInt(document.getElementById('apGrp').value, 10) || 0;
+                loadApWorkers(parseInt(this.value, 10) || 0, grpVal, true, false);
+            });
+            document.getElementById('apGrp').addEventListener('change', function () {
+                var wsVal = parseInt(document.getElementById('apWs').value, 10) || 0;
+                loadApWorkers(wsVal, parseInt(this.value, 10) || 0, true, true);
+            });
+
+            // Click a product row → show inline form below with pre-filled data
+            mApEntries.addEventListener('click', function (e) {
+                var tr = e.target.closest('tr[data-itemid]');
+                if (!tr) return;
+                var trs = mApEntries.querySelectorAll('tr[data-itemid]');
+                for (var i = 0; i < trs.length; i++) trs[i].classList.remove('table-primary');
+                tr.classList.add('table-primary');
+                showApForm({
+                    entryId: tr.getAttribute('data-entryid'),
+                    itemId: tr.getAttribute('data-itemid'), cpbm: tr.getAttribute('data-cpbm'),
+                    cpjc: tr.getAttribute('data-cpjc'), cpgg: tr.getAttribute('data-cpgg'),
+                    cplb: tr.getAttribute('data-cplb'), unit: tr.getAttribute('data-unit'),
+                    bomId: tr.getAttribute('data-bomid'), qty: parseFloat(tr.getAttribute('data-qty')) || 0
+                });
+            });
+
+            var btnOpenApply = document.getElementById('btnOpenApplyPick');
+            if (btnOpenApply) {
+                btnOpenApply.addEventListener('click', function () {
+                    if (!applyModal || readOnly) return;
+                    mSelectedBill = null;
+                    mSelectedApEntry = null;
+                    mApEntries.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-3">请先在左侧选择要货计划单</td></tr>';
+                    mApInfo.textContent = '';
+                    mApSearch.value = '';
+                    hideApForm();
+                    mApLoadBills('');
+                    applyModal.show();
+                });
+            }
+
+            // "确定添加" button: reads inline form and adds the selected product
+            document.getElementById('btnApAddOne').addEventListener('click', function () {
+                if (!mSelectedBill) { gonesToast('请先在左侧选择要货计划单！'); return; }
+                if (!mSelectedApEntry) { gonesToast('请单击选择要引入的产品行！'); return; }
+                var pick = {
+                    deptId: parseInt(document.getElementById('apDept').value, 10) || 0,
+                    wsId: parseInt(document.getElementById('apWs').value, 10) || 0,
+                    grpId: parseInt(document.getElementById('apGrp').value, 10) || 0,
+                    wkId: parseInt(document.getElementById('apWk').value, 10) || 0,
+                    date: document.getElementById('apDate').value,
+                    people: document.getElementById('apPeople').value,
+                    remark: document.getElementById('apRemark').value
+                };
+                var ok = addRow({
+                    id: mSelectedApEntry.itemId, srcEntryId: mSelectedApEntry.entryId,
+                    cpbm: mSelectedApEntry.cpbm,
+                    cpjc: mSelectedApEntry.cpjc, cpgg: mSelectedApEntry.cpgg,
+                    cplb: mSelectedApEntry.cplb, unit: mSelectedApEntry.unit,
+                    bomId: mSelectedApEntry.bomId
+                }, parseFloat(document.getElementById('apQty').value) || 0, pick);
+                document.getElementById('ApplyNo').value = mSelectedBill.billNo || '';
+                var empSel = document.querySelector('select[name="ApplyerId"]');
+                if (empSel && mSelectedBill.empId && mSelectedBill.empId !== 'null') {
+                    var hasOpt = false;
+                    for (var k = 0; k < empSel.options.length; k++) {
+                        if (String(empSel.options[k].value) === String(mSelectedBill.empId)) { hasOpt = true; break; }
+                    }
+                    if (!hasOpt) {
+                        var opt = document.createElement('option');
+                        opt.value = mSelectedBill.empId;
+                        opt.textContent = mSelectedBill.empName || ('#' + mSelectedBill.empId);
+                        empSel.appendChild(opt);
+                    }
+                    empSel.value = mSelectedBill.empId;
+                }
+                if (!ok) gonesToast('该产品已存在，被跳过。');
+                // Clear selection and hide form
+                var trs = mApEntries.querySelectorAll('tr[data-itemid]');
+                for (var i = 0; i < trs.length; i++) trs[i].classList.remove('table-primary');
+                hideApForm();
+                refreshPreview();
+            });
+
+            // ---- production department tree-select + applicant cascade ----
+            var depWrap = document.getElementById('depTreeWrap');
+            var depTreePanel = document.getElementById('depTreePanel');
+            var deptIdInput = document.getElementById('DeptId');
+            var deptNameInput = document.getElementById('DeptName');
+            var applyerSel = document.querySelector('select[name="ApplyerId"]');
+
+            function fillApplyers(items, keepId) {
+                if (!applyerSel) return;
+                // Preserve the current selection (with its name) even when the
+                // worker is outside the newly loaded department scope.
+                var keepName = '';
+                if (keepId) {
+                    for (var k = 0; k < applyerSel.options.length; k++) {
+                        if (String(applyerSel.options[k].value) === String(keepId)) { keepName = applyerSel.options[k].textContent; break; }
+                    }
+                }
+                var opts = '<option value="">-- 不指定 --</option>';
+                var found = false;
+                for (var i = 0; i < items.length; i++) {
+                    var sel = (keepId && Number(items[i].id) === Number(keepId)) ? ' selected' : '';
+                    if (sel) found = true;
+                    opts += '<option value="' + items[i].id + '"' + sel + '>' + esc(items[i].name) + '</option>';
+                }
+                if (keepId && !found) {
+                    opts += '<option value="' + esc(keepId) + '" selected>' + esc(keepName || ('#' + keepId)) + '</option>';
+                }
+                applyerSel.innerHTML = opts;
+            }
+
+            function loadApplyers(deptId) {
+                if (!applyerSel) return;
+                if (!deptId) { fillApplyers([], null); return; }
+                var keepId = applyerSel.value;
+                fetch('/PmsProduceOrder/GetWorkersByDept?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) { fillApplyers(d.items || [], keepId); })
+                    .catch(function (e) { console.error(e); });
+            }
+
+            function selectDept(id, name) {
+                deptIdInput.value = id;
+                deptNameInput.value = name;
+                if (depTreePanel) depTreePanel.classList.remove('show');
+                loadApplyers(id);
+            }
+
+            if (depWrap && !readOnly) {
+                if (deptNameInput) {
+                    deptNameInput.addEventListener('focus', function () { if (depTreePanel) depTreePanel.classList.add('show'); });
+                    deptNameInput.addEventListener('click', function () { if (depTreePanel) depTreePanel.classList.add('show'); });
+                }
+                if (depTreePanel) {
+                    depTreePanel.addEventListener('click', function (e) {
+                        var a = e.target.closest('.dep-node');
+                        if (!a) return;
+                        selectDept(a.getAttribute('data-id'), a.getAttribute('data-name'));
+                    });
+                }
+                document.addEventListener('click', function (e) {
+                    if (depWrap && !depWrap.contains(e.target) && depTreePanel && depTreePanel.classList.contains('show')) {
+                        depTreePanel.classList.remove('show');
+                    }
+                });
+            }
+
+            // initial load: preselect applicants for the already-chosen department (edit/new default dept)
+            (function initDept() {
+                var initId = deptIdInput ? (parseInt(deptIdInput.value, 10) || 0) : 0;
+                if (initId && !readOnly) loadApplyers(initId);
+            })();
+
+            // BOM material group collapse toggle (event delegation)
+            if (matBody) {
+                matBody.addEventListener('click', function (e) {
+                    var toggle = e.target.closest('.bom-toggle, .bom-group-header');
+                    if (!toggle) return;
+                    var header = toggle.classList.contains('bom-group-header') ? toggle : toggle.closest('.bom-group-header');
+                    if (!header) return;
+                    var bomId = header.getAttribute('data-bom-id');
+                    if (!bomId) return;
+                    var rows = matBody.querySelectorAll('.bom-group-' + bomId);
+                    var expanded = false;
+                    rows.forEach(function (r) { if (!r.classList.contains('d-none')) expanded = true; });
+                    rows.forEach(function (r) { r.classList.toggle('d-none', expanded); });
+                    var icon = header.querySelector('.icon-tabler-chevron-down, .icon-tabler-chevron-right');
+                    if (icon) {
+                        if (expanded) {
+                            icon.classList.remove('icon-tabler-chevron-down');
+                            icon.classList.add('icon-tabler-chevron-right');
+                            icon.innerHTML = '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M9 6l6 6l-6 6" />';
+                        } else {
+                            icon.classList.remove('icon-tabler-chevron-right');
+                            icon.classList.add('icon-tabler-chevron-down');
+                            icon.innerHTML = '<path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M6 9l6 6l6 -6" />';
+                        }
+                    }
+                });
+            }
+
+            // (per-row picking selects removed: the main table is display-only; picks
+            // are made in the itemPickModal and stored as hidden fields per row)
+
+            // picking qty formatting
+            if (matBody) {
+                matBody.addEventListener('blur', function (e) {
+                    if (!e.target.classList) return;
+                    if (e.target.classList.contains('dec2')) {
+                        var v = parseFloat(e.target.value);
+                        e.target.value = isNaN(v) ? '0.00' : v.toFixed(2);
+                    }
+                }, true);
+            }
+
+            reindexPickRows();
+            refreshCount();
+        })();
+
+        // 工序明细折叠/展开
+        var stepVisible = true;
+        var stepToggleIcon = document.getElementById('stepToggleIcon');
+        var stepTableWrap = document.getElementById('stepTableWrap');
+        if (stepToggleIcon && stepTableWrap) {
+            stepToggleIcon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>';
+        }
+        function toggleStepSection() {
+            if (!stepTableWrap) return;
+            stepVisible = !stepVisible;
+            stepTableWrap.style.display = stepVisible ? '' : 'none';
+            if (stepToggleIcon) {
+                stepToggleIcon.innerHTML = stepVisible
+                    ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>'
+                    : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>';
+            }
+        }
+    </script>
+}

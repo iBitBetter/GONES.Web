@@ -1,0 +1,837 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model ProductInEditViewModel
+@{
+    ViewBag.Title = "生产入库维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var inspectors = (List<t_ERP_DataDict>)ViewBag.Inspectors;
+    var createrName = (string)ViewBag.CreaterName;
+    var rows = Model.Rows ?? new List<ProductInRowInput>();
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+
+    // 只读页（Details）把 action 置空并阻断提交：否则浏览器回车隐式提交会打到 Details（无 POST 动作）。
+    // formOnSubmit 为 null 时 Razor 直接省略 onsubmit 属性。
+    var formAction = readOnly ? "" : (isNew ? "/ProductIn/Create" : "/ProductIn/Edit/" + Model.InterId);
+    var formOnSubmit = readOnly ? "return false;" : null;
+
+    // Single source of truth for row field names. Must match ProductInRowInput properties
+    // and the addRow template below; reindex() uses this list to renumber after delete.
+    // NOTE: reindex uses [name$=".Field"] (dot prefix) -- no two names here are suffixes
+    // of each other (ProduceId / ProductEntryId / PlanNum / InNum are safe).
+    var rowFields = new[] {
+        "Source","ProductEntryId","ProduceId","PickBillId","PickEntryId","PickBillNo",
+        "BomId","StepId","ItemId","Cpbm","ProductName","Spec",
+        "CategoryName","Unit","StepName","PlanNum","InNum","Note"
+    };
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看生产入库单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/ProductIn">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@formAction" onsubmit="@formOnSubmit">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">入库单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">入库日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">检验人</label>
+                    <select class="form-select" name="Inspectors" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var ins in inspectors)
+                        {
+                            var sel = (Model.Inspectors == ins.DictName) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + Html.Encode(ins.DictName) + "\"" + sel + ">" + Html.Encode(ins.DictName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">摘要</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">入库部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">入库明细（来自生产单 / 仓库领料单）</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="btnPickProduce" @(readOnly ? "disabled" : "")>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        来自生产单
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <button type="button" class="btn btn-success" id="btnPickBill" @(readOnly ? "disabled" : "")>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        来自仓库领料单
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-hint mb-0">从生产单导入产成品明细（已全部入库的行不再出现）；入库数量默认按剩余数量填充，可修改。支持分次入库：部分入库后该生产行仍可再次导入，直到计划数量全部完成。审核时按商品分类自动生成批号（与采购入库规则一致）。</div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:8%;">生产单号</th>
+                            <th style="width:6%;" class="text-secondary">工序名称</th>
+                            <th style="width:8%;">产品代码</th>
+                            <th style="width:12%;">产品名称</th>
+                            <th style="width:7%;" class="text-secondary">规格型号</th>
+                            <th style="width:6%;" class="text-secondary">分类</th>
+                            <th style="width:4%;" class="text-secondary">单位</th>
+                            <th style="width:7%;" class="text-end text-secondary">计划数量</th>
+                            <th style="width:9%;">入库数量</th>
+                            <th style="width:6%;" class="text-end text-secondary">单价</th>
+                            <th style="width:8%;" class="text-end text-secondary">金额</th>
+                            <th style="width:10%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="piBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr>
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].Source" value="@r.Source" />
+                                    <input type="hidden" name="Rows[@ri].ProductEntryId" value="@r.ProductEntryId" />
+                                    <input type="hidden" name="Rows[@ri].ProduceId" value="@r.ProduceId" />
+                                    <input type="hidden" name="Rows[@ri].PickBillId" value="@r.PickBillId" />
+                                    <input type="hidden" name="Rows[@ri].PickEntryId" value="@r.PickEntryId" />
+                                    <input type="hidden" name="Rows[@ri].PickBillNo" value="@r.PickBillNo" />
+                                    <input type="hidden" name="Rows[@ri].BomId" value="@r.BomId" />
+                                    <input type="hidden" name="Rows[@ri].StepId" value="@r.StepId" />
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <input type="hidden" name="Rows[@ri].Cpbm" value="@r.Cpbm" />
+                                    <input type="hidden" name="Rows[@ri].ProductName" value="@r.ProductName" />
+                                    <input type="hidden" name="Rows[@ri].Spec" value="@r.Spec" />
+                                    <input type="hidden" name="Rows[@ri].CategoryName" value="@r.CategoryName" />
+                                    <input type="hidden" name="Rows[@ri].Unit" value="@r.Unit" />
+                                    <input type="hidden" name="Rows[@ri].StepName" value="@r.StepName" />
+                                    <input type="hidden" name="Rows[@ri].PlanNum" value="@((r.PlanNum ?? 0m).ToString("0.######"))" />
+                                    <span class="pi-produceno">@r.ProduceNo</span>
+                                </td>
+                                <td class="text-secondary"><span class="pi-stepname">@r.StepName</span></td>
+                                <td><span class="pi-cpbm">@r.Cpbm</span></td>
+                                <td><span class="pi-productname">@r.ProductName</span></td>
+                                <td class="text-secondary"><span class="pi-spec">@r.Spec</span></td>
+                                <td><span class="badge bg-secondary-lt pi-cat">@r.CategoryName</span></td>
+                                <td class="text-secondary"><span class="pi-unit">@r.Unit</span></td>
+                                <td class="text-end text-secondary"><span class="pi-plannum">@((r.PlanNum ?? 0m).ToString("0.######"))</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].InNum" value="@((r.InNum ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td class="text-end text-secondary"><span class="pi-price">@(r.Price.HasValue ? r.Price.Value.ToString("0.00") : "")</span></td>
+                                <td class="text-end"><span class="pi-amount">@(r.Amount.HasValue ? r.Amount.Value.ToString("0.00") : "")</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>@if (!readOnly)
+                                {<button type="button" class="btn btn-sm btn-outline-danger pi-del">删</button>}</td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存生产入库单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<!-- 生产单选择（导入） -->
+<div class="modal modal-blur fade" id="produceModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">生产单选择</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label mb-0">日期</label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="date" class="form-control form-control-sm" id="poDateFrom" />
+                            <span class="text-secondary">~</span>
+                            <input type="date" class="form-control form-control-sm" id="poDateTo" />
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0">单据编号</label>
+                        <input type="text" class="form-control form-control-sm" id="poBillNo" placeholder="生产单号 模糊匹配" />
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-sm btn-primary" id="btnPoSearch">查询</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:420px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1"><input type="checkbox" id="poCheckAll" /></th>
+                                <th>生产单号</th>
+                                <th class="text-secondary">BOMID</th>
+                                <th class="text-secondary">单据日期</th>
+                                <th class="text-secondary">工序名称</th>
+                                <th>产品名称</th>
+                                <th class="text-secondary">规格型号</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="text-end">计划数量</th>
+                                <th class="text-end text-secondary">剩余数量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="poListBody">
+                            <tr><td colspan="10" class="text-center text-secondary py-4">输入生产单号或日期后查询</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="poModalHint">勾选产成品明细行后点「导入」，入库数量默认按剩余数量填充，可修改；标有「未领料」的生产单须先在仓库领料输入完成领料，才能入库</span>
+                <button type="button" class="btn btn-primary" id="btnPoImport">导入</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 仓库领料单选择（导入）—— 仅含非包装工序的已审核领料单 -->
+<div class="modal modal-blur fade" id="pickModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">仓库领料单选择</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3 align-items-end">
+                    <div class="col-auto">
+                        <label class="form-label mb-0">日期</label>
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="date" class="form-control form-control-sm" id="pkDateFrom" />
+                            <span class="text-secondary">~</span>
+                            <input type="date" class="form-control form-control-sm" id="pkDateTo" />
+                        </div>
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label mb-0">单据编号</label>
+                        <input type="text" class="form-control form-control-sm" id="pkBillNo" placeholder="仓库领料单 模糊匹配" />
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-sm btn-primary" id="btnPickSearch">查询</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:420px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1"><input type="checkbox" id="pkCheckAll" /></th>
+                                <th>仓库领料单</th>
+                                <th class="text-secondary">BOMID</th>
+                                <th class="text-secondary">工序名称</th>
+                                <th>出库产品</th>
+                                <th class="text-secondary">规格型号</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="text-end">出库数量</th>
+                                <th class="text-end text-secondary">剩余数量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pkListBody">
+                            <tr><td colspan="9" class="text-center text-secondary py-4">输入仓库领料单号或日期后查询</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="pkModalHint">勾选可入库的仓库领料单（已排除包装工序），入库数量默认按剩余数量填充，可修改</span>
+                <button type="button" class="btn btn-success" id="btnPickImport">导入</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('piBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var produceModalEl = document.getElementById('produceModal');
+            var poListBody = document.getElementById('poListBody');
+            var poBillNo = document.getElementById('poBillNo');
+            var poDateFrom = document.getElementById('poDateFrom');
+            var poDateTo = document.getElementById('poDateTo');
+            var poCheckAll = document.getElementById('poCheckAll');
+            var poModalHint = document.getElementById('poModalHint');
+            var produceModal = (typeof bootstrap !== 'undefined' && produceModalEl)
+                ? new bootstrap.Modal(produceModalEl) : null;
+
+            var pickModalEl = document.getElementById('pickModal');
+            var pkListBody = document.getElementById('pkListBody');
+            var pkBillNo = document.getElementById('pkBillNo');
+            var pkDateFrom = document.getElementById('pkDateFrom');
+            var pkDateTo = document.getElementById('pkDateTo');
+            var pkCheckAll = document.getElementById('pkCheckAll');
+            var pkModalHint = document.getElementById('pkModalHint');
+            var pickModal = (typeof bootstrap !== 'undefined' && pickModalEl)
+                ? new bootstrap.Modal(pickModalEl) : null;
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var managerSel = document.getElementById('ManagerId');
+
+            var ROW_FIELDS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(rowFields).Replace("</", "<\\/"));
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) { fillOptions(workShopSel, [], '-- 不指定 --'); return; }
+                fetch('/ProductIn/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId) {
+                if (!workShopId) { fillOptions(managerSel, [], '-- 不指定 --'); return; }
+                fetch('/ProductIn/GetManagers?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = ''; managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(id);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() { if (rowCount) rowCount.textContent = body.rows.length + ' 行'; }
+
+            function reindex() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < ROW_FIELDS.length; k++) {
+                        var el = trs[i].querySelector('[name$=".' + ROW_FIELDS[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + ROW_FIELDS[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+            // 金额 = 入库数量 × 单价（单价由服务端按出厂价 ccdj 派生，只读展示）。
+            // 改动入库数量时即时重算本行金额，保证「单价×数量=金额」与保存后一致。
+            function refreshRowAmount(tr) {
+                if (!tr) return;
+                var priceEl = tr.querySelector('.pi-price');
+                var amountEl = tr.querySelector('.pi-amount');
+                if (!priceEl || !amountEl) return;
+                var price = parseFloat(priceEl.textContent);
+                if (isNaN(price)) { amountEl.textContent = ''; return; }
+                var numEl = tr.querySelector('[name$=".InNum"]');
+                var qty = numEl ? parseFloat(numEl.value) : 0;
+                if (isNaN(qty)) qty = 0;
+                amountEl.textContent = (qty * price).toFixed(2);
+            }
+            body.addEventListener('input', function (e) {
+                if (e.target.classList && e.target.classList.contains('dec2'))
+                    refreshRowAmount(e.target.closest('tr'));
+            }, true);
+            body.addEventListener('blur', function (e) {
+                if (e.target.classList && e.target.classList.contains('dec2')) {
+                    formatDec2(e.target);
+                    refreshRowAmount(e.target.closest('tr'));
+                }
+            }, true);
+
+            // a source produce-order row can only be imported once per bill
+            function hasRow(productEntryId, produceId) {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    var pe = trs[i].querySelector('[name$=".ProductEntryId"]');
+                    var pid = trs[i].querySelector('[name$=".ProduceId"]');
+                    if (pe && pid && pe.value === String(productEntryId) && pid.value === String(produceId)) return true;
+                }
+                return false;
+            }
+
+            // a source pick-bill row (Source=1) is keyed by (pickBillId, bomId, itemId)
+            function hasPickRow(pickBillId, bomId, itemId) {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    var sb = trs[i].querySelector('[name$=".Source"]');
+                    var pb = trs[i].querySelector('[name$=".PickBillId"]');
+                    var bi = trs[i].querySelector('[name$=".BomId"]');
+                    var ii = trs[i].querySelector('[name$=".ItemId"]');
+                    if (sb && pb && bi && ii && sb.value === '1'
+                        && pb.value === String(pickBillId) && bi.value === String(bomId) && ii.value === String(itemId)) return true;
+                }
+                return false;
+            }
+
+            // a pick-bill (Source=1) detail row exists for this pick bill (any output product)
+            function hasPickBill(pickBillId) {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    var sb = trs[i].querySelector('[name$=".Source"]');
+                    var pb = trs[i].querySelector('[name$=".PickBillId"]');
+                    if (sb && pb && sb.value === '1' && pb.value === String(pickBillId)) return true;
+                }
+                return false;
+            }
+
+            function addRow(x) {
+                var isPick = (x.source === 1);
+                if (isPick) {
+                    if (hasPickRow(x.pickBillId, x.bomId, x.itemId)) return false;
+                } else {
+                    if (hasRow(x.productEntryId, x.produceId)) return false;
+                }
+                var planNum = Number(x.planNum || 0) || 0;
+                // InNum defaults to the remaining qty so a partial (分次入库) line is topped up,
+                // not re-stocked to the full plan. Falls back to the full plan when no remainder.
+                var restNum = Number(x.restNum);
+                if (isNaN(restNum) || restNum < 0) restNum = planNum;
+                var tr = document.createElement('tr');
+                // Hidden-only fields: display cells are plain <span>s. InNum / Note are
+                // real <input>s below and MUST NOT be duplicated as hidden inputs.
+                // Source=1 rows carry the pick-bill linkage (PickBillId/PickEntryId/PickBillNo);
+                // Source=0 rows carry the produce-order linkage (ProductEntryId/ProduceId).
+                var fields = isPick ? [
+                    ['Source', '1'],
+                    ['PickBillId', x.pickBillId],
+                    ['PickEntryId', x.pickEntryId],
+                    ['PickBillNo', x.pickBillNo],
+                    ['ProductEntryId', '0'],
+                    ['ProduceId', '0'],
+                    ['BomId', x.bomId],
+                    ['StepId', x.stepId],
+                    ['ItemId', x.itemId],
+                    ['Cpbm', x.cpbm || ''],
+                    ['ProductName', x.cpjc || ''],
+                    ['Spec', x.cpgg || ''],
+                    ['CategoryName', x.cplb || ''],
+                    ['Unit', x.unit || ''],
+                    ['StepName', x.stepName || ''],
+                    ['PlanNum', String(planNum)],
+                ] : [
+                    ['Source', '0'],
+                    ['PickBillId', '0'],
+                    ['PickEntryId', '0'],
+                    ['PickBillNo', ''],
+                    ['ProductEntryId', x.productEntryId],
+                    ['ProduceId', x.produceId],
+                    ['BomId', x.bomId],
+                    ['StepId', x.stepId || ''],
+                    ['ItemId', x.itemId],
+                    ['Cpbm', x.cpbm || ''],
+                    ['ProductName', x.cpjc || ''],
+                    ['Spec', x.cpgg || ''],
+                    ['CategoryName', x.cplb || ''],
+                    ['Unit', x.unit || ''],
+                    ['StepName', x.stepName || ''],
+                    ['PlanNum', String(planNum)],
+                ];
+                var hiddenHtml = '';
+                for (var i = 0; i < fields.length; i++) {
+                    hiddenHtml += '<input type="hidden" name="Rows[0].' + fields[i][0] + '" value="' + esc(fields[i][1]) + '">';
+                }
+                var noText = isPick ? x.pickBillNo : x.produceNo;
+                // 单价 = 出厂价 ccdj（服务端同一口径），金额 = 入库数量 × 单价
+                var ccdj = (x.ccdj === null || x.ccdj === undefined || x.ccdj === '') ? null : Number(x.ccdj);
+                var priceText = ccdj === null ? '' : ccdj.toFixed(2);
+                var amountText = ccdj === null ? '' : (restNum * ccdj).toFixed(2);
+                tr.innerHTML =
+                    '<td>' + hiddenHtml + '<span class="pi-produceno">' + esc(noText) + '</span></td>' +
+                    '<td class="text-secondary"><span class="pi-stepname">' + esc(x.stepName) + '</span></td>' +
+                    '<td><span class="pi-cpbm">' + esc(x.cpbm) + '</span></td>' +
+                    '<td><span class="pi-productname">' + esc(x.cpjc) + '</span></td>' +
+                    '<td class="text-secondary"><span class="pi-spec">' + esc(x.cpgg) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt pi-cat">' + esc(x.cplb) + '</span></td>' +
+                    '<td class="text-secondary"><span class="pi-unit">' + esc(x.unit) + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="pi-plannum">' + planNum + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].InNum" value="' + restNum.toFixed(2) + '"></td>' +
+                    '<td class="text-end text-secondary"><span class="pi-price">' + priceText + '</span></td>' +
+                    '<td class="text-end"><span class="pi-amount">' + amountText + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger pi-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+                return true;
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('pi-del')) { e.target.closest('tr').remove(); reindex(); }
+            });
+
+            // ---------------------------------------------------------------- produce-order modal
+
+            function renderPoList(list) {
+                if (!list || list.length === 0) {
+                    poListBody.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-4">没有可导入的生产单产成品（已全部入库的行不再显示）</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var x = list[i];
+                    var d = x.produceDate ? String(x.produceDate).replace('T', ' ').slice(0, 10) : '';
+                    var noPicked = !x.pickState;
+                    var badge = noPicked ? ' <span class="badge bg-warning-lt">未领料</span>' : '';
+                    h += '<tr' + (noPicked ? ' class="text-secondary" title="该生产单的领料单尚未领料，不能入库"' : '') + '>' +
+                        '<td><input type="checkbox" class="po-check"' + (noPicked ? ' disabled' : '') + '></td>' +
+                        '<td class="text-nowrap">' + esc(x.produceNo) + badge + '</td>' +
+                        '<td class="text-secondary">' + esc(x.bomId) + '</td>' +
+                        '<td class="text-secondary">' + esc(d) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.stepName) + '</td>' +
+                        '<td>' + esc(x.cpjc) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.cpgg) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.unit) + '</td>' +
+                        '<td class="text-end">' + (Number(x.planNum) || 0) + '</td>' +
+                        '<td class="text-end text-secondary">' + (Number(x.restNum) || 0) + '</td>' +
+                        '</tr>';
+                }
+                poListBody.innerHTML = h;
+                var trs = poListBody.querySelectorAll('tr');
+                for (var j = 0; j < trs.length && j < list.length; j++) {
+                    trs[j].dataset.payload = JSON.stringify(list[j]);
+                    var already = hasRow(list[j].productEntryId, list[j].produceId);
+                    if (already) {
+                        var cb = trs[j].querySelector('.po-check');
+                        if (cb) { cb.checked = true; cb.disabled = true; }
+                        trs[j].classList.add('text-secondary');
+                    }
+                }
+            }
+
+            function loadPoList() {
+                poListBody.innerHTML = '<tr><td colspan="10" class="text-center text-secondary py-4">查询中…</td></tr>';
+                var q = '/ProductIn/GetProduceOrders?billNo=' + encodeURIComponent(poBillNo.value.trim())
+                      + '&dateFrom=' + encodeURIComponent(poDateFrom.value)
+                      + '&dateTo=' + encodeURIComponent(poDateTo.value)
+                      + '&excludeInterId=' + @Model.InterId;
+                fetch(q)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderPoList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        poListBody.innerHTML = '<tr><td colspan="10" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            if (poCheckAll) {
+                poCheckAll.addEventListener('change', function () {
+                    var boxes = poListBody.querySelectorAll('.po-check');
+                    for (var i = 0; i < boxes.length; i++) {
+                        if (!boxes[i].disabled) boxes[i].checked = this.checked;
+                    }
+                });
+            }
+
+            if (poListBody) {
+                poListBody.addEventListener('click', function (e) {
+                    var tr = e.target.closest('tr');
+                    if (!tr || !tr.dataset.payload) return;
+                    if (e.target.classList && e.target.classList.contains('po-check')) return;
+                    var cb = tr.querySelector('.po-check');
+                    if (cb && !cb.disabled) cb.checked = !cb.checked;
+                });
+            }
+
+            var importBtn = document.getElementById('btnPoImport');
+            if (importBtn) {
+                importBtn.addEventListener('click', function () {
+                    var added = 0, skipped = 0;
+                    var trs = poListBody.querySelectorAll('tr');
+                    for (var i = 0; i < trs.length; i++) {
+                        var cb = trs[i].querySelector('.po-check');
+                        if (!cb || !cb.checked || cb.disabled || !trs[i].dataset.payload) continue;
+                        try {
+                            if (addRow(JSON.parse(trs[i].dataset.payload))) added++;
+                            else skipped++;
+                        } catch (err) { console.error(err); }
+                    }
+                    if (poModalHint) {
+                        poModalHint.textContent = '已导入 ' + added + ' 行' + (skipped > 0 ? ('，' + skipped + ' 行已在明细中跳过') : '') + '（可继续查询或关闭）';
+                    }
+                    if (produceModal) produceModal.hide();
+                });
+            }
+
+            var pickBtn = document.getElementById('btnPickProduce');
+            if (pickBtn) {
+                pickBtn.addEventListener('click', function () {
+                    if (poModalHint) poModalHint.textContent = '勾选产成品明细行后点「导入」，入库数量默认按剩余数量填充，可修改；标有「未领料」的生产单须先在仓库领料输入完成领料，才能入库';
+                    // default date filter = bill date ± nothing: just show all by default
+                    if (produceModal) produceModal.show();
+                    loadPoList();
+                });
+            }
+            var poSearchBtn = document.getElementById('btnPoSearch');
+            if (poSearchBtn) poSearchBtn.addEventListener('click', loadPoList);
+            if (poBillNo) {
+                poBillNo.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') { e.preventDefault(); loadPoList(); }
+                });
+            }
+
+            // ---------------------------------------------------------------- pick-bill modal (non-packaging steps)
+
+            function renderPickList(list) {
+                if (!list || list.length === 0) {
+                    pkListBody.innerHTML = '<tr><td colspan="9" class="text-center text-secondary py-4">没有可导入的领料单（均为包装工序或已全部入库）</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var x = list[i];
+                    h += '<tr>' +
+                        '<td><input type="checkbox" class="pk-check"></td>' +
+                        '<td class="text-nowrap">' + esc(x.pickBillNo) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.bomId) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.stepName) + '</td>' +
+                        '<td>' + esc(x.cpjc) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.cpgg) + '</td>' +
+                        '<td class="text-secondary">' + esc(x.unit) + '</td>' +
+                        '<td class="text-end">' + (Number(x.outQty) || 0) + '</td>' +
+                        '<td class="text-end text-secondary">' + (Number(x.restNum) || 0) + '</td>' +
+                        '</tr>';
+                }
+                pkListBody.innerHTML = h;
+                var trs = pkListBody.querySelectorAll('tr');
+                for (var j = 0; j < trs.length && j < list.length; j++) {
+                    trs[j].dataset.payload = JSON.stringify(list[j]);
+                    var already = hasPickBill(list[j].pickBillId);
+                    if (already) {
+                        var cb = trs[j].querySelector('.pk-check');
+                        if (cb) { cb.checked = true; cb.disabled = true; }
+                        trs[j].classList.add('text-secondary');
+                    }
+                }
+            }
+
+            function loadPickList() {
+                pkListBody.innerHTML = '<tr><td colspan="9" class="text-center text-secondary py-4">查询中…</td></tr>';
+                var q = '/ProductIn/GetPickBills?billNo=' + encodeURIComponent(pkBillNo.value.trim())
+                      + '&dateFrom=' + encodeURIComponent(pkDateFrom.value)
+                      + '&dateTo=' + encodeURIComponent(pkDateTo.value)
+                      + '&excludeInterId=' + @Model.InterId;
+                fetch(q)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderPickList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        pkListBody.innerHTML = '<tr><td colspan="9" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            if (pkCheckAll) {
+                pkCheckAll.addEventListener('change', function () {
+                    var boxes = pkListBody.querySelectorAll('.pk-check');
+                    for (var i = 0; i < boxes.length; i++) {
+                        if (!boxes[i].disabled) boxes[i].checked = this.checked;
+                    }
+                });
+            }
+
+            if (pkListBody) {
+                pkListBody.addEventListener('click', function (e) {
+                    var tr = e.target.closest('tr');
+                    if (!tr || !tr.dataset.payload) return;
+                    if (e.target.classList && e.target.classList.contains('pk-check')) return;
+                    var cb = tr.querySelector('.pk-check');
+                    if (cb && !cb.disabled) cb.checked = !cb.checked;
+                });
+            }
+
+            var pickImportBtn = document.getElementById('btnPickImport');
+            if (pickImportBtn) {
+                pickImportBtn.addEventListener('click', function () {
+                    var added = 0, skipped = 0;
+                    var trs = pkListBody.querySelectorAll('tr');
+                    for (var i = 0; i < trs.length; i++) {
+                        var cb = trs[i].querySelector('.pk-check');
+                        if (!cb || !cb.checked || cb.disabled || !trs[i].dataset.payload) continue;
+                        try {
+                            var x = JSON.parse(trs[i].dataset.payload);
+                            // 弹窗一行领料单 -> 展开其 BOM 的全部产成品（待入库），每行一个
+                            var outs = x.outputs || x.Outputs || [];
+                            for (var k = 0; k < outs.length; k++) {
+                                var o = outs[k];
+                                var r = {
+                                    source: 1,
+                                    pickBillId: x.pickBillId,
+                                    pickEntryId: x.pickEntryId,
+                                    pickBillNo: x.pickBillNo,
+                                    bomId: x.bomId,
+                                    stepId: x.stepId,
+                                    itemId: o.itemId,
+                                    cpbm: o.cpbm || '', cpjc: o.cpjc || '', cpgg: o.cpgg || '', cplb: o.cplb || '', unit: o.unit || '',
+                                    stepName: x.stepName,
+                                    ccdj: o.ccdj,
+                                    planNum: o.planNum, restNum: o.restNum,
+                                };
+                                if (addRow(r)) added++;
+                                else skipped++;
+                            }
+                        } catch (err) { console.error(err); }
+                    }
+                    if (pkModalHint) {
+                        pkModalHint.textContent = '已导入 ' + added + ' 行' + (skipped > 0 ? ('，' + skipped + ' 行已在明细中跳过') : '') + '（可继续查询或关闭）';
+                    }
+                    if (pickModal) pickModal.hide();
+                });
+            }
+
+            var pickOpenBtn = document.getElementById('btnPickBill');
+            if (pickOpenBtn) {
+                pickOpenBtn.addEventListener('click', function () {
+                    if (pkModalHint) pkModalHint.textContent = '勾选可入库的仓库领料单（已排除包装工序），入库数量默认按剩余数量填充，可修改';
+                    if (pickModal) pickModal.show();
+                    loadPickList();
+                });
+            }
+            var pkSearchBtn = document.getElementById('btnPickSearch');
+            if (pkSearchBtn) pkSearchBtn.addEventListener('click', loadPickList);
+            if (pkBillNo) {
+                pkBillNo.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') { e.preventDefault(); loadPickList(); }
+                });
+            }
+
+            refreshCount();
+        })();
+    </script>
+}

@@ -1,0 +1,583 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model StockCheckEditViewModel
+@{
+    ViewBag.Title = "仓库盘点维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var whOptions = (List<t_ERP_Department>)ViewBag.WarehouseOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var createrName = (string)ViewBag.CreaterName;
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+    var rows = Model.Rows ?? new List<StockCheckRowInput>();
+
+    // 只读页把 action 置空并阻断提交：否则浏览器回车隐式提交会打到 Details（无 POST 动作）。
+    // formOnSubmit 为 null 时 Razor 直接省略该属性。
+    var formAction = readOnly ? "" : (isNew ? "/StockCheck/Create" : "/StockCheck/Edit/" + Model.InterId);
+    var formOnSubmit = readOnly ? "return false;" : null;
+
+    // Single source of truth for row field names (must match StockCheckRowInput + addRow).
+    var rowFields = new[] {
+        "ItemId","Cpbm","ProductName","Spec","CategoryName","Unit",
+        "BookStock","CheckQty","Price","BatchNo","WarehouseName","Note"
+    };
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看仓库盘点单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/StockCheck">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@formAction" onsubmit="@formOnSubmit">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">盘点单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">盘点日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">摘要</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" maxlength="1000" @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-4">
+                    @* 盘点部门选填：旧系统 FrmStockCheck 就是 FDeptID=null，不强制。
+                       选了部门才会带出该部门的盘点人下拉。 *@
+                    <label class="form-label">盘点部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">盘点仓库</label>
+                    <select class="form-select" name="WarehouseId" id="StockWhId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择部门 --</option>
+                        @foreach (var d in whOptions)
+                        {
+                            var sel = (Model.WarehouseId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">盘点人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">盘点明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (!readOnly)
+            {
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="btnPickItem">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        添加商品
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-hint mb-0">
+                        按编码 / 名称 / 拼音搜索商品添加行；账面库存自动带出为默认实盘数量，按实际清点结果修改。
+                        审核时按「实盘 − 账面」差额自动生成<b>盘盈单</b>或<b>盘亏单</b>（盘点单本身不动库存）。
+                    </div>
+                </div>
+            </div>
+            }
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:9%;">产品代码</th>
+                            <th style="width:14%;">产品名称</th>
+                            <th style="width:8%;" class="text-secondary">规格型号</th>
+                            <th style="width:7%;" class="text-secondary">产品分类</th>
+                            <th style="width:5%;" class="text-secondary">单位</th>
+                            <th style="width:8%;" class="text-end text-secondary">账面库存</th>
+                            <th style="width:9%;">实盘数量</th>
+                            <th style="width:9%;" class="text-end">差异(实盘−账面)</th>
+                            <th style="width:8%;" class="text-end text-secondary">盘点单价</th>
+                            <th style="width:10%;" class="text-secondary">批号</th>
+                            <th style="width:8%;" class="text-secondary">仓库名称</th>
+                            <th style="width:9%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="wkBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr data-itemid="@r.ItemId">
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <input type="hidden" name="Rows[@ri].Cpbm" value="@r.Cpbm" />
+                                    <input type="hidden" name="Rows[@ri].ProductName" value="@r.ProductName" />
+                                    <input type="hidden" name="Rows[@ri].Spec" value="@r.Spec" />
+                                    <input type="hidden" name="Rows[@ri].CategoryName" value="@r.CategoryName" />
+                                    <input type="hidden" name="Rows[@ri].Unit" value="@r.Unit" />
+                                    <input type="hidden" name="Rows[@ri].BookStock" value="@((r.BookStock ?? 0).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].Price" value="@((r.Price ?? 0).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].WarehouseName" value="@r.WarehouseName" />
+                                    <span class="wk-cpbm">@r.Cpbm</span>
+                                </td>
+                                <td><span class="wk-productname">@r.ProductName</span></td>
+                                <td class="text-secondary"><span class="wk-spec">@r.Spec</span></td>
+                                <td><span class="badge bg-secondary-lt wk-cat">@r.CategoryName</span></td>
+                                <td class="text-secondary"><span class="wk-unit">@r.Unit</span></td>
+                                <td class="text-end text-secondary"><span class="wk-bookstock">@((r.BookStock ?? 0m).ToString("0.######"))</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].CheckQty" value="@((r.CheckQty ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td class="text-end"><span class="wk-diff"></span></td>
+                                <td class="text-end text-secondary"><span class="wk-price">@(r.Price.HasValue ? r.Price.Value.ToString("0.00") : "未设出厂价")</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].BatchNo" value="@r.BatchNo" placeholder="审核后生成" disabled /></td>
+                                <td class="text-secondary"><span class="wk-warehouse">@r.WarehouseName</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" maxlength="1000" @(readOnly ? "disabled" : "") /></td>
+                                <td>
+                                    @if (!readOnly)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button>
+                                    }
+                                </td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存仓库盘点单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<div class="modal modal-blur fade" id="itemModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择商品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-9">
+                        <input type="text" class="form-control" id="itemSearch" placeholder="输入 商品编码 / 名称 / 规格 / 拼音 搜索" autocomplete="off">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="button" class="btn btn-outline-primary w-100" id="btnItemSearch">搜索</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:380px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th>产品代码</th>
+                                <th>产品名称</th>
+                                <th class="text-secondary">规格</th>
+                                <th class="text-secondary">分类</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="text-secondary">账面库存</th>
+                                <th class="w-1"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemListBody">
+                            <tr><td colspan="7" class="text-center text-secondary py-4">输入关键字搜索商品</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="itemModalHint">点击「添加」把商品加为盘点明细行，可多次添加</span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@{
+    var derivedBills = (ViewBag.Derived as List<StockCheckDerivedRow>) ?? new List<StockCheckDerivedRow>();
+}
+@if (derivedBills.Count > 0)
+{
+    <div class="card mt-3">
+        <div class="card-header">
+            <h3 class="card-title">审核派生单</h3>
+            <div class="card-actions">
+                <span class="badge bg-secondary-lt">由本盘点单审核时按差异自动生成，只读</span>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-vcenter card-table table-sm">
+                <thead>
+                    <tr>
+                        <th>单据编号</th>
+                        <th>单据类型</th>
+                        <th>单据日期</th>
+                        <th class="text-end">数量合计</th>
+                        <th class="w-1">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in derivedBills)
+                    {
+                        <tr>
+                            <td>@d.BillNo</td>
+                            <td>
+                                @if (d.BillType == 7)
+                                {
+                                    <span class="badge bg-red-lt">@d.TypeName</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-green-lt">@d.TypeName</span>
+                                }
+                            </td>
+                            <td class="text-secondary">@(d.Date?.ToString("yyyy/M/d"))</td>
+                            <td class="text-end">@d.Qty.ToString("0.####")</td>
+                            <td><a class="btn btn-sm btn-outline-info" href="/StockCheck/Derived/@d.InterId">查看</a></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('wkBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var itemModalEl = document.getElementById('itemModal');
+            var itemSearch = document.getElementById('itemSearch');
+            var itemListBody = document.getElementById('itemListBody');
+            var itemModalHint = document.getElementById('itemModalHint');
+            var itemTimer = 0;
+            var itemModal = (typeof bootstrap !== 'undefined' && itemModalEl)
+                ? new bootstrap.Modal(itemModalEl) : null;
+
+            var deptSel = document.getElementById('DeptId');
+            var managerSel = document.getElementById('ManagerId');
+            // 盘点仓库下拉：select 的 id 是 StockWhId，必须显式取到引用，
+            // 否则 loadWarehouses 写的 fillOptions(whSel,...) 因 whSel 为 undefined 静默失败，
+            // 选部门后仓库下拉永远空（9-18 排查：之前漏了这行赋值）。
+            var whSel = document.getElementById('StockWhId');
+
+            var ROW_FIELDS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(rowFields).Replace("</", "<\\/"));
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWarehouses(deptId) {
+                if (!deptId) { fillOptions(whSel, [], '-- 请选择部门 --'); return; }
+                fetch('/StockCheck/GetWarehouses?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(whSel, data, '-- 请选择仓库 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(whId, deptId) {
+                if (!whId && !deptId) { fillOptions(managerSel, [], '-- 不指定 --'); return; }
+                fetch('/StockCheck/GetManagers?whId=' + (whId || 0) + '&deptId=' + (deptId || 0))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    if (whSel) whSel.value = '';
+                    if (managerSel) managerSel.value = '';
+                    loadWarehouses(id);
+                    loadManagers(0, id);
+                });
+            }
+            if (whSel) {
+                whSel.addEventListener('change', function () {
+                    var whId = parseInt(this.value, 10) || 0;
+                    var deptId = deptSel ? (parseInt(deptSel.value, 10) || 0) : 0;
+                    if (managerSel) managerSel.value = '';
+                    loadManagers(whId, deptId);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() { if (rowCount) rowCount.textContent = body.rows.length + ' 行'; }
+
+            function reindex() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < ROW_FIELDS.length; k++) {
+                        var el = trs[i].querySelector('[name$=".' + ROW_FIELDS[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + ROW_FIELDS[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (e.target.classList && e.target.classList.contains('dec2')) formatDec2(e.target);
+            }, true);
+
+            // ---- 差异 = 实盘 − 账面。正差审核后派生盘盈单、负差派生盘亏单。
+            // 这里只是录入时的提示；真实差额由服务端在审核时按账本重算，不以此为准。
+            function diffCell(tr) {
+                var span = tr.querySelector('.wk-diff');
+                if (!span) return;
+                var qtyEl = tr.querySelector('input[name$=".CheckQty"]');
+                var bookEl = tr.querySelector('input[name$=".BookStock"]');
+                var q = qtyEl ? parseFloat(qtyEl.value) : NaN;
+                var b = bookEl ? parseFloat(bookEl.value) : NaN;
+                if (isNaN(q)) q = 0;
+                if (isNaN(b)) b = 0;
+                var d = q - b;
+                if (d > 0.0001) span.innerHTML = '<span class="badge bg-red-lt">盘盈 ' + d.toFixed(2) + '</span>';
+                else if (d < -0.0001) span.innerHTML = '<span class="badge bg-green-lt">盘亏 ' + (-d).toFixed(2) + '</span>';
+                else span.innerHTML = '<span class="text-secondary">0</span>';
+            }
+
+            function refreshDiff() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) diffCell(trs[i]);
+            }
+
+            body.addEventListener('input', function (e) {
+                if (e.target.classList && e.target.classList.contains('dec2')) diffCell(e.target.closest('tr'));
+            }, true);
+
+            function addRow(item) {
+                var id = String(item.id || item.itemId || 0);
+                if (!id || id === '0') return;
+                // 同一商品只允许一行：重复行会让审核时的差额计算把该商品数两遍（后端的
+                // ValidateBill 也会硬拦，这里只是提前告知，省得用户白填一）。id 来自数字主键。
+                if (body.querySelector('tr[data-itemid="' + id + '"]')) {
+                    gonesToast('该商品已在盘点明细中，同一商品不能重复盘点。');
+                    return;
+                }
+                var bookStock = Number(item.stockNum || 0) || 0;
+                // 出厂单价 -> 盘点单价自动带出。商品未设 ccdj 时不能假装成 0，
+                // 否则用户会以为批次单价就是 0（实际审核时批次 FPrice 会是空）。
+                var hasCcdj = item.ccdj !== null && item.ccdj !== undefined && item.ccdj !== '';
+                var price = hasCcdj ? Number(item.ccdj) : 0;
+                var warehouseName = item.warehouseName || '';
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                var fields = [
+                    ['ItemId', id],
+                    ['Cpbm', item.cpbm || ''],
+                    ['ProductName', item.cpjc || ''],
+                    ['Spec', item.cpgg || ''],
+                    ['CategoryName', item.cplb || ''],
+                    ['Unit', item.unit || ''],
+                    ['BookStock', String(bookStock)],
+                    ['Price', String(price)],
+                    ['WarehouseName', warehouseName],
+                ];
+                var hiddenHtml = '';
+                for (var i = 0; i < fields.length; i++) {
+                    hiddenHtml += '<input type="hidden" name="Rows[0].' + fields[i][0] + '" value="' + esc(fields[i][1]) + '">';
+                }
+                tr.innerHTML =
+                    '<td>' + hiddenHtml + '<span class="wk-cpbm">' + esc(item.cpbm) + '</span></td>' +
+                    '<td><span class="wk-productname">' + esc(item.cpjc) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-spec">' + esc(item.cpgg) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt wk-cat">' + esc(item.cplb) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-unit">' + esc(item.unit) + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-bookstock">' + bookStock + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].CheckQty" value="' + bookStock.toFixed(2) + '"></td>' +
+                    '<td class="text-end"><span class="wk-diff"></span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-price">'
+                        + (hasCcdj ? price.toFixed(2)
+                                   : '<span class="text-danger" title="该商品未设置出厂单价(ccdj)，审核后批次单价将为空">未设出厂价</span>')
+                        + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].BatchNo" value="" placeholder="审核后生成" disabled></td>' +
+                    '<td class="text-secondary"><span class="wk-warehouse">' + esc(warehouseName) + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value="" maxlength="1000"></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+            }
+
+            refreshDiff();
+
+            // ---------------------------------------------------------------- item picker modal
+
+            function renderItemList(list) {
+                if (!list || list.length === 0) {
+                    itemListBody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">未找到匹配的商品</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var it = list[i];
+                    h += '<tr>' +
+                        '<td class="text-secondary">' + esc(it.cpbm) + '</td>' +
+                        '<td>' + esc(it.cpjc) + '</td>' +
+                        '<td class="text-secondary">' + esc(it.cpgg) + '</td>' +
+                        '<td><span class="badge bg-secondary-lt">' + esc(it.cplb) + '</span></td>' +
+                        '<td class="text-secondary">' + esc(it.unit) + '</td>' +
+                        '<td class="text-end text-secondary">' + (Number(it.stockNum) || 0) + '</td>' +
+                        '<td><button type="button" class="btn btn-sm btn-primary item-pick">添加</button></td>' +
+                        '</tr>';
+                }
+                itemListBody.innerHTML = h;
+                var trs = itemListBody.querySelectorAll('tr');
+                for (var j = 0; j < trs.length && j < list.length; j++) {
+                    trs[j].dataset.payload = JSON.stringify(list[j]);
+                }
+            }
+
+            function loadItemList(kw) {
+                var whId = whSel ? (parseInt(whSel.value, 10) || 0) : 0;
+                // 未选仓库且无关键字 -> 占位提示；已选仓库 -> 空关键字也默认带出本仓商品
+                if (!kw && !whId) {
+                    itemListBody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">输入关键字搜索商品</td></tr>';
+                    return;
+                }
+                itemListBody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">搜索中…</td></tr>';
+                fetch('/StockCheck/SearchItems?keyword=' + encodeURIComponent(kw) + '&whId=' + whId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderItemList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        itemListBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            if (itemListBody) {
+                itemListBody.addEventListener('click', function (e) {
+                    var btn = e.target.closest('.item-pick');
+                    if (!btn) return;
+                    var tr = btn.closest('tr');
+                    if (!tr || !tr.dataset.payload) return;
+                    try { addRow(JSON.parse(tr.dataset.payload)); }
+                    catch (err) { console.error(err); }
+                });
+            }
+
+            var pickBtn = document.getElementById('btnPickItem');
+            if (pickBtn) {
+                pickBtn.addEventListener('click', function () {
+                    if (itemSearch) itemSearch.value = '';
+                    if (itemModalHint) itemModalHint.textContent = '点击「添加」把商品加为盘点明细行，可多次添加';
+                    if (itemModal) itemModal.show();
+                    if (itemSearch) itemSearch.focus();
+                    // 打开弹窗即按当前所选盘点仓库默认带出本仓商品（未选仓库时显示占位提示）
+                    loadItemList('');
+                });
+            }
+            if (itemSearch) {
+                itemSearch.addEventListener('input', function () {
+                    clearTimeout(itemTimer);
+                    var kw = this.value.trim();
+                    itemTimer = setTimeout(function () { loadItemList(kw); }, 300);
+                });
+                itemSearch.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') { e.preventDefault(); loadItemList(itemSearch.value.trim()); }
+                });
+            }
+            var itemSearchBtn = document.getElementById('btnItemSearch');
+            if (itemSearchBtn) {
+                itemSearchBtn.addEventListener('click', function () {
+                    loadItemList(itemSearch ? itemSearch.value.trim() : '');
+                });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('wk-del')) { e.target.closest('tr').remove(); reindex(); }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

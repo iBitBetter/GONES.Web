@@ -1,0 +1,59 @@
+@model GONES.Web.Models.DepartmentEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "部门编辑" : "新建部门";
+    var parents = (System.Collections.Generic.List<GONES.Web.Models.DepartmentNode>)ViewBag.ParentOptions;
+    bool isEdit = Model.ID > 0;
+}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <form class="card" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? (int?)Model.ID : null)" method="post" autocomplete="off">
+            @if (isEdit)
+            {
+                <input type="hidden" asp-for="ID" />
+            }
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="ParentID">上级部门</label>
+                    <select asp-for="ParentID" class="form-select">
+                        @foreach (var p in parents)
+                        {
+                            <option value="@p.Id">@p.Name</option>
+                        }
+                    </select>
+                    <small class="form-hint">部门挂在「所有部门」下即为一级部门；挂在部门下即为其车间/仓库。</small>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="DEPName">部门名称</label>
+                    <input asp-for="DEPName" class="form-control" placeholder="请输入部门名称" />
+                </div>
+                <div class="row">
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-label" asp-for="IsDEP">部门类型</label>
+                        <select asp-for="IsDEP" class="form-select">
+                            <option value="0">正常部门</option>
+                            <option value="1">仓库</option>
+                            <option value="2">车间</option>
+                            <option value="3">班组</option>
+                        </select>
+                        <small class="form-hint">IsDEP：0=正常部门，1=仓库，2=车间，3=班组。仓库/车间/班组分别用于库存与生产模块的下拉过滤；班组通常挂在车间下（如 包装一组）。</small>
+                    </div>
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-check form-switch mt-4">
+                            <input asp-for="Status" class="form-check-input" type="checkbox" />
+                            <span class="form-check-label">启用</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div asp-validation-summary="All" class="text-danger"></div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-list justify-content-end">
+                    <a class="btn" href="/SysDepartment?pid=@Model.ParentID">关闭(C)</a>
+                    <button type="submit" class="btn btn-primary">保存(S)</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

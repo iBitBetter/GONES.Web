@@ -1,0 +1,19 @@
+@model GONES.Web.Models.DashboardViewModel
+@{
+    // 独立大屏页：不套系统布局，看板铺满整页（适合投屏 / kiosk 直链 /Dashboard）
+    Layout = null;
+    ViewData["DashFullPage"] = true;
+    ViewBag.Title = "生产 MES 数据看板";
+}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>生产 MES 数据看板</title>
+    <style>html, body { margin: 0; padding: 0; background: #0a1733; }</style>
+</head>
+<body>
+    @await Html.PartialAsync("_DashboardBoard", Model)
+</body>
+</html>

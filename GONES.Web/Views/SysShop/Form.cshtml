@@ -1,0 +1,137 @@
+@model GONES.Web.Models.ShopInfoEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "店铺编辑" : "新建店铺";
+    bool isEdit = Model.ID > 0;
+}
+<div class="row justify-content-center">
+    <div class="col-xl-10">
+        <form class="card" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? (int?)Model.ID : null)" method="post" autocomplete="off">
+            @if (isEdit)
+            {
+                <input type="hidden" asp-for="ID" />
+            }
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label required" asp-for="ShopNumber">店铺编号</label>
+                        <input asp-for="ShopNumber" class="form-control" placeholder="请输入" />
+                        <span asp-validation-for="ShopNumber" class="text-danger"></span>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label required" asp-for="ShopName">店铺名称</label>
+                        <input asp-for="ShopName" class="form-control" placeholder="请输入" />
+                        <span asp-validation-for="ShopName" class="text-danger"></span>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="Phone">联系电话</label>
+                        <input asp-for="Phone" class="form-control" placeholder="请输入" />
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="QQ">QQ号码</label>
+                        <input asp-for="QQ" class="form-control" placeholder="请输入" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="ShopType">店铺类型</label>
+                        <select asp-for="ShopType" class="form-select">
+                            @foreach (var t in GONES.Web.Models.ShopInfoEditViewModel.ShopTypeOptions)
+                            {
+                                <option value="@t">@t</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="IsAutoDown">自动下载</label>
+                        <select asp-for="IsAutoDown" class="form-select">
+                            <option value="True">是</option>
+                            <option value="False">否</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5 mb-3">
+                        <label class="form-label" asp-for="Address">联系地址</label>
+                        <input asp-for="Address" class="form-control" placeholder="请输入" />
+                    </div>
+                    <div class="col-md-1 mb-3">
+                        <label class="form-label" asp-for="IsEnable">启用</label>
+                        <label class="form-check form-switch">
+                            <input asp-for="IsEnable" class="form-check-input" type="checkbox" />
+                        </label>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" asp-for="Appkey">Appkey</label>
+                        <input asp-for="Appkey" class="form-control" placeholder="请输入" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" asp-for="AppSecrect">AppSecrect</label>
+                        <input asp-for="AppSecrect" class="form-control" placeholder="请输入" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" asp-for="SessionKey">SessionKey</label>
+                        <input asp-for="SessionKey" class="form-control" placeholder="请输入" />
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="SessionEndDate">Key 到期时间</label>
+                        <input asp-for="SessionEndDate" class="form-control" type="date" />
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="OrderCount">订单每次下载数量</label>
+                        <input asp-for="OrderCount" class="form-control" placeholder="100" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="SendAisle">短信通道</label>
+                        <select asp-for="SendAisle" class="form-select">
+                            @foreach (var kv in GONES.Web.Models.ShopInfoEditViewModel.SendAisleOptions)
+                            {
+                                <option value="@kv.Value">@kv.Text</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label" asp-for="IsMessage">是否发送短信</label>
+                        <select asp-for="IsMessage" class="form-select">
+                            <option value="True">是</option>
+                            <option value="False">否</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 mb-3">
+                        <label class="form-label required" asp-for="ShopSort">店铺序号</label>
+                        <input asp-for="ShopSort" class="form-control" placeholder="请输入" />
+                        <span asp-validation-for="ShopSort" class="text-danger"></span>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" asp-for="ConfigData">催付短信模板</label>
+                        <textarea asp-for="ConfigData" class="form-control" rows="4" placeholder="请输入催付短信模板"></textarea>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label" asp-for="Message">发货短信模板</label>
+                        <textarea asp-for="Message" class="form-control" rows="4" placeholder="请输入发货短信模板"></textarea>
+                    </div>
+                </div>
+
+                <div asp-validation-summary="All" class="text-danger"></div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-list justify-content-end">
+                    <a class="btn" href="/SysShop">关闭(C)</a>
+                    <button type="submit" class="btn btn-primary">保存(S)</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+

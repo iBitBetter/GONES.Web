@@ -1,0 +1,902 @@
+@model GONES.Web.Models.ItemEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "编辑商品" : "新建商品";
+    var classOptions = (System.Collections.Generic.List<GONES.Web.Models.SelectOption>)ViewBag.ClassOptions;
+    var unitOptions = (System.Collections.Generic.List<string>)ViewBag.UnitOptions;
+    var sxOptions = (System.Collections.Generic.List<string>)ViewBag.SxOptions;
+    var slOptions = (System.Collections.Generic.List<string>)ViewBag.SlOptions;
+    var selectedClassId = (int?)ViewBag.SelectedClassId;
+    var isEdit = Model.ID > 0;
+    var pickerItems = (System.Collections.Generic.List<GONES.Web.Models.PickerItem>)ViewBag.PickerItems
+        ?? new System.Collections.Generic.List<GONES.Web.Models.PickerItem>();
+    var GroupRowInfo = (System.Collections.Generic.Dictionary<string, GONES.Web.Models.PickerItem>)ViewBag.GroupRowInfo
+        ?? new System.Collections.Generic.Dictionary<string, GONES.Web.Models.PickerItem>();
+    GONES.Web.Models.PickerItem info = null;
+    bool isModal = (bool?)(ViewBag.IsModal) ?? false;
+}
+@if (!isModal)
+{
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col">
+            <h2 class="page-title mb-0">@(isEdit ? "编辑商品" : "新建商品")</h2>
+        </div>
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/PmsItem">返回列表</a>
+        </div>
+    </div>
+</div>
+}
+
+<!-- 组合商品选择浮层：用内联 overlay 实现，避免 Bootstrap 嵌套模态关闭外层模态的 bug -->
+<style>
+    .gp-overlay {
+        position: fixed; inset: 0; z-index: 2000;
+        background: rgba(15, 23, 42, .55);
+        display: flex; align-items: center; justify-content: center;
+        padding: 1rem;
+    }
+    .gp-panel {
+        background: #fff; border-radius: .5rem; width: 100%; max-width: 820px;
+        max-height: 90vh; display: flex; flex-direction: column;
+        box-shadow: 0 .75rem 1.5rem rgba(0, 0, 0, .18);
+    }
+    .gp-panel-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: .75rem 1rem; border-bottom: 1px solid #e6e7e9;
+    }
+    .gp-panel-body { padding: 1rem; overflow: auto; }
+</style>
+
+<form asp-action="@(isEdit ? "Edit" : "Create")" asp-route-id="@(isEdit ? Model.ID : (int?)null)" method="post" id="itemForm">
+    @Html.AntiForgeryToken()
+    <input type="hidden" asp-for="ID" />
+
+    <div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+    <!-- 四步向导步骤条 -->
+    <div class="steps steps-counter steps-blue mb-3" id="wizardSteps">
+        <div class="step-item" data-step-target="1">基本信息</div>
+        <div class="step-item" data-step-target="2">物流与价格</div>
+        <div class="step-item" data-step-target="3">其他编号与状态</div>
+        <div class="step-item" data-step-target="4">组合商品</div>
+    </div>
+
+    <!-- ============ Step 1：基本信息 ============ -->
+    <div class="wizard-step" data-step="1">
+        <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="ClassId"></label>
+                    <select class="form-select" asp-for="ClassId">
+                        <option value="">-- 请选择商品分类 --</option>
+                        @foreach (var opt in classOptions)
+                        {
+                            <option value="@opt.Id">@opt.Text</option>
+                        }
+                    </select>
+                    <span asp-validation-for="ClassId" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="Cpbm"></label>
+                    <input class="form-control" asp-for="Cpbm" readonly />
+                    <div class="form-hint">@if (isEdit) { <text>编码不可修改</text> } else { <text>选定分类后自动生成，不可编辑</text> }</div>
+                    <span asp-validation-for="Cpbm" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="Cpjc"></label>
+                    <input class="form-control" asp-for="Cpjc" />
+                    <span asp-validation-for="Cpjc" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="Cpqc"></label>
+                    <input class="form-control" asp-for="Cpqc" />
+                    <div class="form-hint">自动拼装：分类全称_商品简称</div>
+                    <span asp-validation-for="Cpqc" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="Cppym"></label>
+                    <input class="form-control" asp-for="Cppym" />
+                    <div class="form-hint">由商品简称经 PKT.NPinyin 自动生成，可手工微调</div>
+                    <span asp-validation-for="Cppym" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label required" asp-for="Cpgg"></label>
+                        <input class="form-control" asp-for="Cpgg" />
+                        <span asp-validation-for="Cpgg" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        @{ var txmRequired = (ViewBag.CurrentLb as string ?? "") == "产成品"; }
+                        <label class="form-label @(txmRequired ? "required" : "")" asp-for="Txm"></label>
+                        @if (txmRequired)
+                        {
+                            <input class="form-control" asp-for="Txm" required="required" />
+                        }
+                        else
+                        {
+                            <input class="form-control" asp-for="Txm" />
+                        }
+                        <span asp-validation-for="Txm" class="invalid-feedback d-block"></span>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-6 mb-0">
+                        <label class="form-label" asp-for="Ckid"></label>
+                        <select class="form-select" asp-for="Ckid">
+                            <option value="">请选择仓库…</option>
+                            @foreach (var d in (System.Collections.Generic.List<GONES.Web.Models.SelectOption>)ViewBag.CkOptions)
+                            {
+                                <option value="@d.Id">@d.Text</option>
+                            }
+                        </select>
+                        <span asp-validation-for="Ckid" class="text-danger"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Sx1"></label>
+                        <select class="form-select" asp-for="Sx1">
+                            <option value="">请选择</option>
+                            @foreach (var s in sxOptions)
+                            {
+                                <option value="@s">@s</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.Sx1) && !sxOptions.Contains(Model.Sx1))
+                            {
+                                <option value="@Model.Sx1" selected>@Model.Sx1</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+                @* 属性1（Sx）按需求隐藏，仅保持原值提交 *@
+                <input type="hidden" asp-for="Sx" />
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Step 2：物流与价格 ============ -->
+    <div class="wizard-step d-none" data-step="2">
+        <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title">物流与重量</h3></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-4 mb-3">
+                        <label class="form-label required" asp-for="Wlbzdw"></label>
+                        <select class="form-select" asp-for="Wlbzdw">
+                            <option value="">请选择</option>
+                            @foreach (var u in unitOptions)
+                            {
+                                <option value="@u">@u</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.Wlbzdw) && !unitOptions.Contains(Model.Wlbzdw))
+                            {
+                                <option value="@Model.Wlbzdw" selected>@Model.Wlbzdw</option>
+                            }
+                        </select>
+                        <span asp-validation-for="Wlbzdw" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-4 mb-3">
+                        <label class="form-label required" asp-for="Wlbzl"></label>
+                        <input type="number" min="1" step="1" class="form-control" asp-for="Wlbzl" />
+                        <span asp-validation-for="Wlbzl" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-4 mb-3">
+                        <label class="form-label required" asp-for="Wljbdw"></label>
+                        <select class="form-select" asp-for="Wljbdw">
+                            <option value="">请选择</option>
+                            @foreach (var u in unitOptions)
+                            {
+                                <option value="@u">@u</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.Wljbdw) && !unitOptions.Contains(Model.Wljbdw))
+                            {
+                                <option value="@Model.Wljbdw" selected>@Model.Wljbdw</option>
+                            }
+                        </select>
+                        <span asp-validation-for="Wljbdw" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label required" asp-for="Jhl"></label>
+                        <input type="number" min="0" step="0.001" class="form-control" asp-for="Jhl" />
+                        <span asp-validation-for="Jhl" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label required" asp-for="Zzl"></label>
+                        <input type="number" min="0" step="0.001" class="form-control" asp-for="Zzl" />
+                        <span asp-validation-for="Zzl" class="invalid-feedback d-block"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title">价格</h3></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label required" asp-for="Lsdj"></label>
+                        <input type="number" min="0" step="0.01" class="form-control" asp-for="Lsdj" />
+                        <span asp-validation-for="Lsdj" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label required" asp-for="Cbdj"></label>
+                        <input type="number" min="0" step="0.01" class="form-control" asp-for="Cbdj" />
+                        <span asp-validation-for="Cbdj" class="invalid-feedback d-block"></span>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Jxdj"></label>
+                        <input type="number" min="0" step="0.01" class="form-control" asp-for="Jxdj" />
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Ccdj"></label>
+                        <input type="number" min="0" step="0.01" class="form-control" asp-for="Ccdj" />
+                        <div class="form-hint">留空时取零售单价</div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Jmdj"></label>
+                        <input type="number" min="0" step="0.01" class="form-control" asp-for="Jmdj" />
+                        <div class="form-hint">留空时取零售单价</div>
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Sl"></label>
+                        <select class="form-select" asp-for="Sl">
+                            <option value="">16%（默认）</option>
+                            @foreach (var s in slOptions)
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Step 3：其他编号与状态 ============ -->
+    <div class="wizard-step d-none" data-step="3">
+        <div class="card mb-3">
+            <div class="card-header"><h3 class="card-title">其他编号</h3></div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Wbbm"></label>
+                        <input class="form-control" asp-for="Wbbm" />
+                    </div>
+                    @* cplb 由所选商品分类自动推导，前端不显示 *@
+                    <input type="hidden" asp-for="Cplb" />
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Cphw"></label>
+                        <input class="form-control" asp-for="Cphw" />
+                    </div>
+                    <div class="col-6 mb-3">
+                        <label class="form-label" asp-for="Bz"></label>
+                        <input class="form-control" asp-for="Bz" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">状态控制</h3></div>
+            <div class="card-body">
+                <div class="row g-2">
+                    <div class="col-4">
+                        <label class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" asp-for="Enabled" />
+                            <span class="form-check-label">启用</span>
+                        </label>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" asp-for="FbZt" />
+                            <span class="form-check-label">发布控制</span>
+                        </label>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" asp-for="ZhZt" />
+                            <span class="form-check-label">组合商品</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="form-hint mt-2 mb-0">勾选「组合商品」后，下一步可维护明细子商品。</div>
+                @* 其余状态保持原值、不在界面显示 *@
+                <input type="hidden" asp-for="KcZt" />
+                <input type="hidden" asp-for="DlbZt" />
+                <input type="hidden" asp-for="ZpZt" />
+                <input type="hidden" asp-for="KdZt" />
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Step 4：组合商品（勾选组合商品才出现） ============ -->
+    <div class="wizard-step d-none" data-step="4">
+        <div class="card" id="groupCard">
+            <div class="card-header">
+                <h3 class="card-title">组合商品</h3>
+            </div>
+            <div class="card-body">
+                @if (!Html.ViewData.ModelState.IsValid)
+                {
+                    var groupError = Html.ViewData.ModelState.TryGetValue("GroupItems", out var gs) && gs?.Errors.Count > 0
+                        ? gs.Errors[0].ErrorMessage : null;
+                    if (!string.IsNullOrEmpty(groupError))
+                    {
+                        <div class="text-danger mb-2">@groupError</div>
+                    }
+                }
+                <div class="mb-3">
+                    <button type="button" class="btn btn-outline-primary" id="btnAddGroup">
+                        添加商品
+                    </button>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-vcenter card-table">
+                        <thead>
+                            <tr>
+                                <th>商品编码</th>
+                                <th>简称</th>
+                                <th>规格</th>
+                                <th style="width:100px">基本数量</th>
+                                <th style="width:110px">单价</th>
+                                <th style="width:60px"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="groupBody">
+                            @{ var gi = 0; }
+                            @foreach (var row in Model.GroupItems.Where(g => !string.IsNullOrWhiteSpace(g?.Cpbm)))
+                            {
+                                info = GroupRowInfo.TryGetValue(row.Cpbm.Trim(), out var inf) ? inf : null;
+                                <tr data-cpbm="@row.Cpbm" title="@info?.Txm@(string.IsNullOrEmpty(info?.Sx) ? "" : "｜" + info?.Sx)@(string.IsNullOrEmpty(info?.Sx1) ? "" : "｜" + info?.Sx1)">
+                                    <td>
+                                        <input type="hidden" name="GroupItems[@gi].Cpbm" value="@row.Cpbm" />
+                                        <span class="group-cpbm">@row.Cpbm</span>
+                                    </td>
+                                    <td>@info?.Cpjc</td>
+                                    <td>@info?.Cpgg</td>
+                                    <td><input type="number" min="1" step="1" class="form-control form-control-sm" name="GroupItems[@gi].Jbsl" value="@row.Jbsl" /></td>
+                                    <td><input type="number" min="0" step="0.01" class="form-control form-control-sm" name="GroupItems[@gi].Dj" value="@(((row.Dj ?? info?.Lsdj) ?? 0M).ToString("0.00"))" /></td>
+                                    <td><button type="button" class="btn btn-sm btn-outline-danger group-del">删</button></td>
+                                </tr>
+                                gi++;
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td colspan="3" class="text-end text-secondary">合计</td>
+                                <td><span id="groupQtyTotal">0</span></td>
+                                <td>
+                                    <span id="groupAmtTotal">0.00</span>
+                                    <div class="form-hint mb-0" style="white-space:nowrap">＝Σ(基本数量×单价)</div>
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 向导导航按钮 -->
+    <div class="d-flex justify-content-between mt-3">
+        <button type="button" class="btn btn-outline-secondary" id="wizPrev" disabled>上一步</button>
+        <div class="btn-list">
+            <button type="button" class="btn btn-primary" id="wizNext">下一步</button>
+            <button type="button" class="btn btn-success d-none" id="wizSubmit">提交</button>
+            @if (isModal)
+            {
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+            }
+            else
+            {
+                <a class="btn btn-outline-secondary" href="/PmsItem">取消</a>
+            }
+        </div>
+    </div>
+</form>
+
+<!-- 选择产成品浮层：内联 overlay（非 Bootstrap 模态），避免嵌套模态关闭外层模态 -->
+<div id="groupPickOverlay" class="gp-overlay d-none">
+    <div class="gp-panel" role="dialog" aria-modal="true">
+        <div class="gp-panel-header">
+            <h5 class="mb-0">选择产成品</h5>
+            <button type="button" class="btn-close" id="groupPickClose" aria-label="关闭"></button>
+        </div>
+        <div class="gp-panel-body">
+            <input class="form-control mb-3" id="groupPickSearch" placeholder="输入编码 / 简称 / 条形码筛选…" autocomplete="off" />
+            <div class="table-responsive" style="max-height:50vh; overflow-y:auto">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th>商品编码</th>
+                            <th>简称</th>
+                            <th>规格</th>
+                            <th>条形码</th>
+                            <th>零售价</th>
+                            <th style="width:90px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="groupPickBody">
+                        @foreach (var p in pickerItems)
+                        {
+                            <tr data-search="@p.Cpbm @p.Cpjc @p.Txm">
+                                <td>@p.Cpbm</td>
+                                <td>@p.Cpjc</td>
+                                <td>@p.Cpgg</td>
+                                <td>@p.Txm</td>
+                                <td>@p.Lsdj?.ToString("0.00")</td>
+                                <td>
+                                    <button type="button" class="btn btn-sm btn-outline-primary group-pick-add"
+                                            data-cpbm="@p.Cpbm" data-cpjc="@p.Cpjc" data-cpgg="@p.Cpgg"
+                                            data-txm="@p.Txm" data-sx="@p.Sx" data-sx1="@p.Sx1" data-lsdj="@p.Lsdj">
+                                        添加
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function () {
+        // 用 id 精确定位本向导表单：模态模式下 document.querySelector('form')
+        // 会命中 Index 页的筛选表单（文档第一个 form），必须避开。
+        var form = document.getElementById('itemForm');
+        var isEditPage = @(isEdit ? "true" : "false");
+
+        // ===== 向导：步骤条 + 分步导航 + 分步校验 =====
+        var step4Panel = document.querySelector('.wizard-step[data-step="4"]');
+        var wizPrev = document.getElementById('wizPrev');
+        var wizNext = document.getElementById('wizNext');
+        var wizSubmit = document.getElementById('wizSubmit');
+        var stepItems = Array.prototype.slice.call(document.querySelectorAll('#wizardSteps .step-item'));
+        var zhZt = document.getElementById('ZhZt');
+        var groupCard = document.getElementById('groupCard');
+        var currentStep = 1;
+
+        // 当前实际可达步骤：1/2/3 固定，勾选「组合商品」才含 4
+        function activeSteps() {
+            var s = [1, 2, 3];
+            if (zhZt && zhZt.checked) s.push(4);
+            return s;
+        }
+
+        function showStep(n) {
+            document.querySelectorAll('.wizard-step').forEach(function (p) {
+                p.classList.toggle('d-none', parseInt(p.getAttribute('data-step'), 10) !== n);
+            });
+        }
+
+        function rebuildNav() {
+            var steps = activeSteps();
+            var idx = steps.indexOf(currentStep);
+            var isLast = idx === steps.length - 1;
+            stepItems.forEach(function (it) {
+                var t = parseInt(it.getAttribute('data-step-target'), 10);
+                it.classList.toggle('active', t <= currentStep);
+                it.classList.toggle('text-secondary', (t === 4 && !(zhZt && zhZt.checked)));
+                it.style.cursor = (t < currentStep) ? 'pointer' : 'default';
+            });
+            wizPrev.disabled = (currentStep === 1);
+            wizNext.classList.toggle('d-none', isLast);
+            wizSubmit.classList.toggle('d-none', !isLast);
+        }
+
+        function goToStep(n) {
+            currentStep = n;
+            showStep(n);
+            rebuildNav();
+        }
+
+        // 校验某一步内的可见字段，不通过则提示并阻断。
+        // ⚠ 约束校验 API（checkValidity/reportValidity）只存在于表单控件上，
+        //   容器 div 上没有这两个方法，必须逐控件校验。
+        // 另外：模型 [Required] 只生成 data-val-*（本项目未用 jquery.validate），
+        // 原生 required 属性不存在 → 再按 label.required 标记补一道非空校验。
+        function isMarkedRequired(c) {
+            if (!c.id) return false;
+            var lbl = document.querySelector('label[for="' + c.id + '"]');
+            return !!(lbl && lbl.classList.contains('required'));
+        }
+
+        function flagInvalid(c) {
+            c.classList.add('is-invalid');
+            try { c.focus(); } catch (e) { /* ignore */ }
+            if (typeof c.reportValidity === 'function') {
+                try { c.reportValidity(); } catch (e2) { /* ignore */ }
+            }
+        }
+
+        function validateStep(n) {
+            var panel = document.querySelector('.wizard-step[data-step="' + n + '"]');
+            if (!panel) return true;
+            var controls = panel.querySelectorAll('input, select, textarea');
+            for (var i = 0; i < controls.length; i++) {
+                var c = controls[i];
+                if (c.disabled || c.type === 'hidden' || c.type === 'submit' || c.type === 'button') continue;
+                // 原生约束校验（min/max/pattern 及手工 required）
+                if (typeof c.checkValidity === 'function' && !c.checkValidity()) {
+                    flagInvalid(c);
+                    return false;
+                }
+                // label.required 标记的必填项：非空校验（含只读的自动编码）
+                if (isMarkedRequired(c)) {
+                    var v = (c.value || '').trim();
+                    if (!v) {
+                        flagInvalid(c);
+                        if (window.gonesToast) window.gonesToast('请先完整填写本步的必填项');
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // 校验失败回显：跳到首个含验证错误的步骤，避免错误藏在未显示的页签里
+        function findFirstErrorStep() {
+            var steps = activeSteps();
+            for (var i = 0; i < steps.length; i++) {
+                var p = document.querySelector('.wizard-step[data-step="' + steps[i] + '"]');
+                if (!p) continue;
+                var hasErr =
+                    p.querySelector('.field-validation-error') ||
+                    Array.prototype.some.call(p.querySelectorAll('.invalid-feedback'), function (s) {
+                        return s.textContent.trim() !== '';
+                    });
+                if (hasErr) return steps[i];
+            }
+            return 0;
+        }
+
+        function doSubmit() {
+            // 组合商品：勾选后至少一行
+            var gb = document.getElementById('groupBody');
+            if (zhZt && zhZt.checked && gb && gb.querySelectorAll('tr[data-cpbm]').length === 0) {
+                if (window.gonesToast) window.gonesToast('组合商品已勾选，请至少添加一行子商品');
+                else alert('组合商品已勾选，请至少添加一行子商品');
+                return;
+            }
+            // 全表单校验兜底：若隐藏步骤存在非法字段（如被依赖联动改坏），先跳到该步骤再提示
+            if (form && !form.checkValidity()) {
+                var ctrl = form.querySelector(':invalid');
+                if (ctrl) {
+                    var p = ctrl.closest('.wizard-step');
+                    if (p) {
+                        var sn = parseInt(p.getAttribute('data-step'), 10);
+                        goToStep(sn);
+                        setTimeout(function () {
+                            if (typeof ctrl.reportValidity === 'function') ctrl.reportValidity();
+                            else ctrl.focus();
+                        }, 0);
+                        return;
+                    }
+                }
+            }
+            if (typeof form.requestSubmit === 'function') form.requestSubmit();
+            else form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+
+        if (wizNext) {
+            wizNext.addEventListener('click', function () {
+                if (!validateStep(currentStep)) return;
+                var steps = activeSteps();
+                var idx = steps.indexOf(currentStep);
+                if (idx < steps.length - 1) goToStep(steps[idx + 1]);
+                else doSubmit();
+            });
+        }
+        if (wizPrev) {
+            wizPrev.addEventListener('click', function () {
+                var steps = activeSteps();
+                var idx = steps.indexOf(currentStep);
+                if (idx > 0) goToStep(steps[idx - 1]);
+            });
+        }
+        if (wizSubmit) wizSubmit.addEventListener('click', doSubmit);
+
+        // 步骤条点击：仅允许回退到已走过的步骤（前进仍需「下一步」做校验）
+        stepItems.forEach(function (it) {
+            it.addEventListener('click', function () {
+                var t = parseInt(it.getAttribute('data-step-target'), 10);
+                if (t < currentStep) goToStep(t);
+            });
+        });
+
+        // 勾选「组合商品」→ 显示/隐藏第 4 步并重排步骤条
+        if (zhZt && step4Panel) {
+            zhZt.addEventListener('change', function () {
+                var on = zhZt.checked;
+                step4Panel.classList.toggle('d-none', !on);
+                if (!on && currentStep === 4) currentStep = 3;
+                goToStep(currentStep);
+            });
+        }
+
+        // 初始进入：优先跳到首个错误步骤（校验失败回显），否则从第 1 步开始
+        var errStep = findFirstErrorStep();
+        goToStep(errStep || 1);
+
+        // 输入后清除必填校验红框
+        if (form) {
+            form.addEventListener('input', function (e) {
+                if (e.target && e.target.classList) e.target.classList.remove('is-invalid');
+            });
+            form.addEventListener('change', function (e) {
+                if (e.target && e.target.classList) e.target.classList.remove('is-invalid');
+            });
+        }
+
+        // ===== 拼音码：商品简称 → 数据库函数 dbo.f_GetPinYin（新建/编辑均生效） =====
+        var classSel = document.getElementById('ClassId');
+        var cpbmInput = document.getElementById('Cpbm');
+        var cpqcInput = document.getElementById('Cpqc');
+        var cpjcInput = document.getElementById('Cpjc');
+        var cppymInput = document.getElementById('Cppym');
+        var currentQmmc = '';   // 当前选中分类的 qmmc，用于拼接商品全称
+        var pyXhr = null;
+
+        function fillPinyin() {
+            if (!cppymInput || !cpjcInput) return;
+            var jc = cpjcInput.value.trim();
+            if (!jc) { cppymInput.value = ''; return; }
+            if (pyXhr) pyXhr.abort();   // 只保留最后一次请求
+            pyXhr = new XMLHttpRequest();
+            pyXhr.open('GET', '/PmsItem/ToPinyin?text=' + encodeURIComponent(jc), true);
+            pyXhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            pyXhr.onload = function () {
+                if (pyXhr.status === 200) {
+                    try {
+                        var r = JSON.parse(pyXhr.responseText);
+                        cppymInput.value = r.pinyin || '';
+                    } catch (e) { /* ignore */ }
+                }
+            };
+            pyXhr.send();
+        }
+
+        // ===== 新建页：选分类 → 自动编码 + 缓存分类全称；输简称 → 自动全称（联动拼音码） =====
+        if (classSel && cpbmInput && !isEditPage) {
+            function refreshFullName() {
+                if (!cpqcInput || !cpjcInput) return;
+                var jc = cpjcInput.value.trim();
+                if (jc && currentQmmc) {
+                    cpqcInput.value = currentQmmc + '_' + jc;
+                }
+            }
+
+            function fillFromClass() {
+                var cid = classSel.value;
+                if (!cid) { cpbmInput.value = ''; currentQmmc = ''; return; }
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', '/PmsItem/NextSeq?classId=' + encodeURIComponent(cid), true);
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.onload = function () {
+                    if (xhr.status === 200) {
+                        try {
+                            var d = JSON.parse(xhr.responseText);
+                            currentQmmc = d.qmmc || '';
+                            if (d.qmdm && d.nextSeq) cpbmInput.value = d.qmdm + '.' + d.nextSeq;
+                            refreshFullName();   // 分类确定后，若已填简称则立即拼全称
+                        } catch (e) { /* ignore */ }
+                    }
+                };
+                xhr.send();
+            }
+            classSel.addEventListener('change', fillFromClass);
+
+            // 页面加载时若已预选分类（URL带classId），触发一次
+            if (classSel.value) fillFromClass();
+        }
+
+        // ===== 简称输入联动（新建/编辑均生效）=====
+        var prevJc = cpjcInput ? cpjcInput.value.trim() : '';
+        if (cpjcInput) {
+            cpjcInput.addEventListener('input', function () {
+                var jc = cpjcInput.value.trim();
+                if (cpqcInput && jc) {
+                    if (!isEditPage && currentQmmc) {
+                        // 新建页：按「分类全称_简称」重组全称
+                        cpqcInput.value = currentQmmc + '_' + jc;
+                    } else if (isEditPage && prevJc) {
+                        // 编辑页：仅当全称仍是「…_旧简称」自动拼装格式时替换尾缀，不覆盖手工维护的全称
+                        var q = cpqcInput.value;
+                        var suffix = '_' + prevJc;
+                        if (q.endsWith(suffix)) {
+                            cpqcInput.value = q.slice(0, q.length - suffix.length) + '_' + jc;
+                        }
+                    }
+                }
+                prevJc = jc;
+                fillPinyin();
+            });
+        }
+
+        // ===== 条形码必填动态切换：所选分类的一级类别(lb)=「产成品」时必填，其他类别选填 =====
+        var classLb = @Html.Raw(ViewBag.ClassLbJson ?? "{}");
+        var txmInput = document.getElementById('Txm');
+        var txmLabel = document.querySelector('label[for="Txm"]');
+        function refreshTxmRequired() {
+            if (!txmInput || !txmLabel) return;
+            var cid = classSel ? classSel.value : '';
+            var isFg = !!cid && classLb[cid] === '产成品';
+            txmLabel.classList.toggle('required', isFg);
+            if (isFg) txmInput.setAttribute('required', 'required');
+            else txmInput.removeAttribute('required');
+        }
+        if (classSel) classSel.addEventListener('change', refreshTxmRequired);
+        refreshTxmRequired();
+
+        // ===== 商品组合明细 =====
+        if (!zhZt || !groupCard) return;   // 无组合控件则跳过后续明细逻辑
+
+        // 「添加商品」→ 打开内联选择浮层（不使用 Bootstrap 嵌套模态，避免外层模态被一起关闭）
+        var btnAddGroup = document.getElementById('btnAddGroup');
+        var groupPickOverlay = document.getElementById('groupPickOverlay');
+        var groupPickClose = document.getElementById('groupPickClose');
+        if (btnAddGroup && groupPickOverlay) {
+            btnAddGroup.addEventListener('click', function () {
+                groupPickOverlay.classList.remove('d-none');
+            });
+        }
+        if (groupPickClose && groupPickOverlay) {
+            groupPickClose.addEventListener('click', function () {
+                groupPickOverlay.classList.add('d-none');
+            });
+        }
+        if (groupPickOverlay) {
+            // 点击浮层空白（面板外侧半透明区）关闭
+            groupPickOverlay.addEventListener('click', function (e) {
+                if (e.target === groupPickOverlay) groupPickOverlay.classList.add('d-none');
+            });
+        }
+
+        var body = document.getElementById('groupBody');
+        var pickSearch = document.getElementById('groupPickSearch');
+        var pickBody = document.getElementById('groupPickBody');
+        var qtyTotalEl = document.getElementById('groupQtyTotal');
+        var amtTotalEl = document.getElementById('groupAmtTotal');
+
+        // 模态框搜索：按编码/简称/条形码过滤候选行
+        if (pickSearch && pickBody) {
+            pickSearch.addEventListener('input', function () {
+                var kw = pickSearch.value.trim().toLowerCase();
+                pickBody.querySelectorAll('tr[data-search]').forEach(function (tr) {
+                    var hit = !kw || tr.getAttribute('data-search').toLowerCase().indexOf(kw) >= 0;
+                    tr.style.display = hit ? '' : 'none';
+                });
+            });
+        }
+
+        // 同步模态框按钮状态：已在组合明细中的子商品，按钮禁用并显示「已添加」
+        function refreshPickButtons() {
+            if (!pickBody) return;
+            var added = {};
+            body.querySelectorAll('tr[data-cpbm]').forEach(function (tr) {
+                added[tr.getAttribute('data-cpbm')] = true;
+            });
+            pickBody.querySelectorAll('.group-pick-add').forEach(function (btn) {
+                var isAdded = !!added[btn.getAttribute('data-cpbm')];
+                btn.disabled = isAdded;
+                btn.textContent = isAdded ? '已添加' : '添加';
+                btn.classList.toggle('btn-outline-secondary', isAdded);
+                btn.classList.toggle('btn-outline-primary', !isAdded);
+            });
+        }
+
+        // 行内输入重命名，保证 MVC 集合绑定索引从 0 连续
+        function reindex() {
+            var rows = body.querySelectorAll('tr');
+            for (var i = 0; i < rows.length; i++) {
+                rows[i].querySelector('input[name$="Cpbm"]').name = 'GroupItems[' + i + '].Cpbm';
+                rows[i].querySelector('input[name$="Jbsl"]').name = 'GroupItems[' + i + '].Jbsl';
+                rows[i].querySelector('input[name$="Dj"]').name = 'GroupItems[' + i + '].Dj';
+            }
+        }
+
+        // 合计行：数量 = Σ基本数量；金额 = Σ(基本数量×单价)
+        function recalcTotal() {
+            if (!qtyTotalEl || !amtTotalEl) return;
+            var qty = 0, amt = 0;
+            body.querySelectorAll('tr').forEach(function (tr) {
+                var jEl = tr.querySelector('input[name$="Jbsl"]');
+                var dEl = tr.querySelector('input[name$="Dj"]');
+                var j = jEl ? (parseFloat(jEl.value) || 0) : 0;
+                var d = dEl ? (parseFloat(dEl.value) || 0) : 0;
+                qty += j;
+                amt += j * d;
+            });
+            qtyTotalEl.textContent = qty;
+            amtTotalEl.textContent = amt.toFixed(2);
+        }
+
+        // 数量/单价任一改动即时重算（事件委托，兼容动态新增行）
+        body.addEventListener('input', recalcTotal);
+        body.addEventListener('change', recalcTotal);
+
+        function addRow(el) {
+            var cpbm = el.getAttribute('data-cpbm');
+            if (!cpbm) return;
+            // 同一子商品不能重复添加
+            for (var i = 0; i < body.rows.length; i++) {
+                if (body.rows[i].getAttribute('data-cpbm') === cpbm) { if (window.gonesToast) window.gonesToast('该商品已在组合明细中！'); else alert('该商品已在组合明细中！'); return; }
+            }
+
+            var tr = document.createElement('tr');
+            tr.setAttribute('data-cpbm', cpbm);
+            // 条形码/属性与 Razor 行一致：放行 title 悬浮提示，不占列
+            var tipParts = [];
+            ['txm', 'sx', 'sx1'].forEach(function (k) {
+                var v = el.getAttribute('data-' + k);
+                if (v) tipParts.push(v);
+            });
+            if (tipParts.length) tr.title = tipParts.join('｜');
+
+            function td() { return document.createElement('td'); }
+            var tdCpbm = td();
+            var hidden = document.createElement('input');
+            hidden.type = 'hidden'; hidden.name = 'GroupItems[0].Cpbm'; hidden.value = cpbm;
+            var span = document.createElement('span');
+            span.className = 'group-cpbm'; span.textContent = cpbm;
+            tdCpbm.appendChild(hidden); tdCpbm.appendChild(span);
+            tr.appendChild(tdCpbm);
+
+            ['cpjc', 'cpgg'].forEach(function (k) {
+                var td2 = td(); td2.textContent = el.getAttribute('data-' + k) || ''; tr.appendChild(td2);
+            });
+
+            var tdQty = td();
+            var qty = document.createElement('input');
+            qty.type = 'number'; qty.min = '1'; qty.step = '1';
+            qty.className = 'form-control form-control-sm';
+            qty.name = 'GroupItems[0].Jbsl'; qty.value = '1';
+            tdQty.appendChild(qty); tr.appendChild(tdQty);
+
+            // 单价：默认取所选子商品的零售价，可手工微调
+            var tdDj = td();
+            var dj = document.createElement('input');
+            dj.type = 'number'; dj.min = '0'; dj.step = '0.01';
+            dj.className = 'form-control form-control-sm';
+            dj.name = 'GroupItems[0].Dj';
+            var lsdj = parseFloat(el.getAttribute('data-lsdj'));
+            dj.value = isNaN(lsdj) ? '0.00' : lsdj.toFixed(2);
+            tdDj.appendChild(dj); tr.appendChild(tdDj);
+
+            var tdDel = td();
+            var del = document.createElement('button');
+            del.type = 'button'; del.className = 'btn btn-sm btn-outline-danger group-del';
+            del.textContent = '删';
+            tdDel.appendChild(del); tr.appendChild(tdDel);
+
+            body.appendChild(tr);
+            reindex();
+            recalcTotal();
+        }
+
+        // 模态框内点「添加」→ 写入组合明细行，并同步按钮状态
+        if (pickBody) {
+            pickBody.addEventListener('click', function (e) {
+                var btn = e.target.closest('.group-pick-add');
+                if (!btn || btn.disabled) return;
+                addRow(btn);
+                refreshPickButtons();
+            });
+        }
+        refreshPickButtons();   // 编辑页回显时，已加入的子商品按钮置为「已添加」
+
+        body.addEventListener('click', function (e) {
+            if (e.target.classList.contains('group-del')) {
+                e.target.closest('tr').remove();
+                reindex();
+                refreshPickButtons();   // 删除后恢复模态框中的「添加」按钮
+                recalcTotal();
+            }
+        });
+
+        recalcTotal();   // 首次进入（编辑页回显）先算一遍合计
+    })();
+</script>

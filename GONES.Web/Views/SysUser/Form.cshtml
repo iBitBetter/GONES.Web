@@ -1,0 +1,150 @@
+@model GONES.Web.Models.UserEditViewModel
+@{
+    ViewBag.Title = Model.ID == 0 ? "新建用户" : "编辑用户";
+    var persons = ViewBag.Persons as System.Collections.Generic.List<GONES.Web.Models.PersonPickItem>
+                  ?? new System.Collections.Generic.List<GONES.Web.Models.PersonPickItem>();
+    var usedAccounts = ViewBag.UsedAccounts as System.Collections.Generic.Dictionary<string, int>
+                       ?? new System.Collections.Generic.Dictionary<string, int>();
+    // 编辑场景：库里存的姓名可能早已不在人员管理中（如「超级管理员」），
+    // 或对应人员已被删除 —— 补一条占位选项，保证原值能回显、保存不丢。
+    bool nameMissing = !string.IsNullOrEmpty(Model.UserName)
+                       && !persons.Any(p => string.Equals(p.Name, Model.UserName, System.StringComparison.OrdinalIgnoreCase));
+}
+@if (Model.ID == 0)
+{
+    <div class="alert alert-info mb-3">保存后系统会生成<strong>随机初始密码</strong>，仅在创建成功时一次性显示，请立即转交本人；首次登录必须修改。</div>
+}
+
+<form asp-action="@(Model.ID == 0 ? "Create" : "Edit")" asp-route-id="@Model.ID" method="post">
+    @Html.AntiForgeryToken()
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <div class="card">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label required">账号</label>
+                    <input asp-for="Account" id="Account" class="form-control" placeholder="登录账号" />
+                    <div class="form-hint">选择人员后自动填为姓名，可手工修改。</div>
+                    <span asp-validation-for="Account" class="text-danger"></span>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label required">姓名</label>
+                    <select asp-for="UserName" id="UserName" class="form-select">
+                        <option value="">-- 请从人员管理选择 --</option>
+                        @foreach (var p in persons)
+                        {
+                            <option value="@p.Name" data-dep="@p.DepId">@p.Name@(string.IsNullOrEmpty(p.DepName) ? "" : "（" + p.DepName + "）")</option>
+                        }
+                        @if (nameMissing)
+                        {
+                            <option value="@Model.UserName" selected>@Model.UserName（不在人员管理中）</option>
+                        }
+                    </select>
+                    <div class="form-hint">选择后自动带出该人员的所属部门，并同步账号为姓名。</div>
+                    <span asp-validation-for="UserName" class="text-danger"></span>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label required">部门</label>
+                    <select asp-for="DEPID" asp-items="(System.Collections.Generic.IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.Departments" class="form-select">
+                        <option value="">-- 请选择 --</option>
+                    </select>
+                    <span asp-validation-for="DEPID" class="text-danger"></span>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label required">角色</label>
+                    <select asp-for="RoleID" asp-items="(System.Collections.Generic.IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.Roles" class="form-select">
+                        <option value="">-- 请选择 --</option>
+                    </select>
+                    <span asp-validation-for="RoleID" class="text-danger"></span>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label">店铺权限</label>
+                    <select asp-for="ShopIds" asp-items="(System.Collections.Generic.IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.Shops" class="form-select" multiple size="6"></select>
+                    <div class="form-hint">按住 Ctrl / Command 多选。</div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label">仓库权限</label>
+                    <select asp-for="DepotIds" asp-items="(System.Collections.Generic.IEnumerable<Microsoft.AspNetCore.Mvc.Rendering.SelectListItem>)ViewBag.Depots" class="form-select" multiple size="6"></select>
+                    <div class="form-hint">
+                        按住 Ctrl / Command 多选。控制该账号在「生产 - 仓库管理」下能看到/操作的仓库数据。
+                        <strong>留空＝看不到任何仓库数据</strong>（管理员不受限）。
+                    </div>
+                    <span asp-validation-for="DepotIds" class="text-danger"></span>
+                </div>
+
+                <div class="col-md-6 d-flex align-items-end">
+                    <div class="form-check form-switch me-4">
+                        <input asp-for="Enabled" type="checkbox" class="form-check-input" role="switch" id="Enabled" />
+                        <label class="form-check-label" for="Enabled">启用</label>
+                    </div>
+                    <div class="form-check form-switch">
+                        <input asp-for="CanLogin" type="checkbox" class="form-check-input" role="switch" id="CanLogin" />
+                        <label class="form-check-label" for="CanLogin">允许登录</label>
+                    </div>
+                </div>
+
+                @if (Model.ID != 0)
+                {
+                    <div class="col-md-6 d-flex align-items-end">
+                        <div class="form-check">
+                            <input asp-for="ResetPassword" type="checkbox" class="form-check-input" id="ResetPassword" />
+                            <label class="form-check-label" for="ResetPassword">重置密码（生成随机初始密码，下次登录须修改）</label>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+        <div class="card-footer text-end">
+            <a href="/SysUser" class="btn btn-link">返回</a>
+            <button type="submit" class="btn btn-primary">保存</button>
+        </div>
+    </div>
+</form>
+
+<script>
+    // 姓名 ← 人员管理：选择人员后自动带出「部门」并把「账号」填为姓名。
+    (function () {
+        var personSel = document.getElementById('UserName');
+        var accountEl = document.getElementById('Account');
+        var depEl = document.getElementById('DEPID');
+        if (!personSel || !accountEl || !depEl) return;
+
+        // 账号 → 已占用该账号的用户 ID（服务端注入），用于选择人员时即时提示冲突
+        var used = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(usedAccounts));
+        var usedLower = {};
+        Object.keys(used).forEach(function (k) { usedLower[String(k).toLowerCase()] = used[k]; });
+
+        var currentId = @Model.ID;
+        var lastAuto = '';   // 上一次由选择人员自动写入的账号，用于识别"用户是否手改过"
+
+        function toast(msg) {
+            if (typeof window.gonesToast === 'function') window.gonesToast(msg);
+        }
+
+        personSel.addEventListener('change', function () {
+            var opt = personSel.options[personSel.selectedIndex];
+            var name = personSel.value || '';
+            if (!name) { depEl.value = ''; return; }
+
+            // ① 部门：带入人员的归属部门。服务端已把班组/车间/仓库冒泡到最近的真部门
+            //    （用户管理的部门只认 IsDEP=0）；拿不到值时保持用户手选，不做清空。
+            var depId = opt ? opt.getAttribute('data-dep') : '';
+            if (depId) depEl.value = depId;
+
+            // ② 账号：默认为姓名。只在账号为空、或账号仍等于上次自动填入的值时覆盖，
+            //    避免把用户已经手工改过的账号冲掉。
+            if (!accountEl.value || accountEl.value === lastAuto) {
+                accountEl.value = name;
+                lastAuto = name;
+            }
+
+            // ③ 账号占用即时提示（保存时后端仍会二次校验）
+            var owner = usedLower[name.toLowerCase()];
+            if (owner !== undefined && owner !== currentId) {
+                toast('账号「' + name + '」已被占用（用户 #' + owner + '），请修改账号或先处理原用户。');
+            }
+        });
+    })();
+</script>

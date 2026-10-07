@@ -1,0 +1,272 @@
+@using GONES.Web.Models
+@model ProductInOutCountViewModel
+@{
+    ViewData["Title"] = "产品入出库统计";
+    var filter = ViewBag.Filter as Dictionary<string, string> ?? new Dictionary<string, string>();
+    var warehouses = ViewBag.WarehouseOptions as List<GONES.Model.Pg.t_ERP_Department> ?? new List<GONES.Model.Pg.t_ERP_Department>();
+    string dir = ViewBag.Tab as string ?? "in";
+    int billType = ViewBag.BillType is int bt ? bt : -1;
+    string T(object v) => v is decimal d ? d.ToString("0.####") : (v?.ToString() ?? "");
+
+    // 构造 Tab 切换链接（保留当前筛选条件）
+    string Qs(string t)
+    {
+        var d = new Dictionary<string, string> { ["tab"] = t };
+        if (ViewBag.WarehouseId is int wid) d["warehouseId"] = wid.ToString();
+        if (!string.IsNullOrEmpty(filter["keyword"])) d["keyword"] = filter["keyword"];
+        if (!string.IsNullOrEmpty(filter["batchNo"])) d["batchNo"] = filter["batchNo"];
+        if (!string.IsNullOrEmpty(filter["createrName"])) d["createrName"] = filter["createrName"];
+        if (billType >= 0) d["billType"] = billType.ToString();
+        if (!string.IsNullOrEmpty(filter["dateFrom"])) d["dateFrom"] = filter["dateFrom"];
+        if (!string.IsNullOrEmpty(filter["dateTo"])) d["dateTo"] = filter["dateTo"];
+        var q = string.Join("&", d.Select(kv => kv.Key + "=" + System.Net.WebUtility.UrlEncode(kv.Value)));
+        return "/ProductInOutCount?" + q;
+    }
+}
+
+@* 无 Tab 兜底标题：Tab(iframe) 内由 _Layout 脚本移除，直链打开时显示 *@
+<h2 class="page-title gones-standalone-title d-none mb-3">@(ViewData["Title"])</h2>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item">
+        <a class="nav-link @(dir == "in" ? "active" : "")" href="@Qs("in")">入库单</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link @(dir == "out" ? "active" : "")" href="@Qs("out")">出库单</a>
+    </li>
+</ul>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="filterForm">
+            <input type="hidden" name="tab" value="@dir" />
+            <div class="col-auto">
+                <label class="form-label mb-0">仓库</label>
+                <select name="warehouseId" class="form-select form-select-sm">
+                    <option value="">全部仓库</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.ID" selected="@(ViewBag.WarehouseId is int wid && wid == w.ID)">@w.DEPName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据类型</label>
+                <select name="billType" class="form-select form-select-sm">
+                    <option value="-1" selected="@(billType < 0)">全部</option>
+                    @foreach (var opt in Model.BillTypeOptions)
+                    {
+                        <option value="@opt.FBillType" selected="@(billType == opt.FBillType)">@opt.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">商品关键字</label>
+                <input type="text" class="form-control form-control-sm" name="keyword" value="@filter["keyword"]" placeholder="代码/名称/拼音" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">批号</label>
+                <input type="text" class="form-control form-control-sm" name="batchNo" value="@filter["batchNo"]" placeholder="批号" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">制单人</label>
+                <input type="text" class="form-control form-control-sm" name="createrName" value="@filter["createrName"]" placeholder="制单人" />
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/ProductInOutCount?tab=@dir">清空</a>
+            </div>
+            <div class="col-auto">
+                <a class="btn btn-sm btn-outline-success" href="/ProductInOutCount/Export?tab=@dir&warehouseId=@(ViewBag.WarehouseId is int whid ? whid : "")&billType=@billType&keyword=@System.Net.WebUtility.UrlEncode(filter["keyword"])&batchNo=@System.Net.WebUtility.UrlEncode(filter["batchNo"])&createrName=@System.Net.WebUtility.UrlEncode(filter["createrName"])&dateFrom=@filter["dateFrom"]&dateTo=@filter["dateTo"]">导出 .xls</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-header">
+        <h3 class="card-title">统计汇总（@(dir == "in" ? "入库" : "出库")）</h3>
+        <div class="card-actions">
+            <div class="btn-group btn-group-sm" role="group" aria-label="汇总维度">
+                <button type="button" class="btn btn-outline-secondary active" data-sdim="type">按单据类型</button>
+                <button type="button" class="btn btn-outline-secondary" data-sdim="warehouse">按仓库</button>
+                <button type="button" class="btn btn-outline-secondary" data-sdim="product">按商品</button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="row g-2 mb-2">
+            <div class="col-auto"><span class="badge bg-blue-lt">单据数：@Model.Summary.Count</span></div>
+            <div class="col-auto"><span class="badge bg-green-lt">数量合计：@T(Model.Summary.FNum)</span></div>
+            <div class="col-auto"><span class="badge bg-green-lt">数量扩展1：@T(Model.Summary.FNumExt1)</span></div>
+            <div class="col-auto"><span class="badge bg-green-lt">数量扩展2：@T(Model.Summary.FNumExt2)</span></div>
+            <div class="col-auto"><span class="badge bg-green-lt">数量扩展3：@T(Model.Summary.FNumExt3)</span></div>
+            <div class="col-auto"><span class="badge bg-orange-lt">金额合计：@T(Model.Summary.FAmount)</span></div>
+        </div>
+
+        @* 维度一：按单据类型 *@
+        <div id="sum-type">
+            @if (Model.Summary.ByType.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm text-nowrap mb-0" style="max-width:760px">
+                        <thead>
+                            <tr><th>单据类型</th><th class="text-end">单数</th><th class="text-end">数量</th><th class="text-end">数量扩展1</th><th class="text-end">数量扩展2</th><th class="text-end">数量扩展3</th><th class="text-end">金额</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in Model.Summary.ByType)
+                            {
+                                <tr>
+                                    <td>@s.GroupName</td>
+                                    <td class="text-end">@s.Count</td>
+                                    <td class="text-end">@T(s.FNum)</td>
+                                    <td class="text-end">@T(s.FNumExt1)</td>
+                                    <td class="text-end">@T(s.FNumExt2)</td>
+                                    <td class="text-end">@T(s.FNumExt3)</td>
+                                    <td class="text-end">@T(s.FAmount)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* 维度二：按仓库 *@
+        <div id="sum-warehouse" style="display:none">
+            @if (Model.Summary.ByWarehouse.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm text-nowrap mb-0" style="max-width:760px">
+                        <thead>
+                            <tr><th>仓库</th><th class="text-end">单数</th><th class="text-end">数量</th><th class="text-end">数量扩展1</th><th class="text-end">数量扩展2</th><th class="text-end">数量扩展3</th><th class="text-end">金额</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in Model.Summary.ByWarehouse)
+                            {
+                                <tr>
+                                    <td>@s.GroupName</td>
+                                    <td class="text-end">@s.Count</td>
+                                    <td class="text-end">@T(s.FNum)</td>
+                                    <td class="text-end">@T(s.FNumExt1)</td>
+                                    <td class="text-end">@T(s.FNumExt2)</td>
+                                    <td class="text-end">@T(s.FNumExt3)</td>
+                                    <td class="text-end">@T(s.FAmount)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        @* 维度三：按商品 *@
+        <div id="sum-product" style="display:none">
+            @if (Model.Summary.ByProduct.Count > 0)
+            {
+                <div class="table-responsive">
+                    <table class="table table-sm text-nowrap mb-0" style="max-width:900px">
+                        <thead>
+                            <tr><th>商品</th><th class="text-end">单数</th><th class="text-end">数量</th><th class="text-end">数量扩展1</th><th class="text-end">数量扩展2</th><th class="text-end">数量扩展3</th><th class="text-end">金额</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in Model.Summary.ByProduct)
+                            {
+                                <tr>
+                                    <td>@s.GroupName</td>
+                                    <td class="text-end">@s.Count</td>
+                                    <td class="text-end">@T(s.FNum)</td>
+                                    <td class="text-end">@T(s.FNumExt1)</td>
+                                    <td class="text-end">@T(s.FNumExt2)</td>
+                                    <td class="text-end">@T(s.FNumExt3)</td>
+                                    <td class="text-end">@T(s.FAmount)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">明细（已审核，按日期倒序）</h3>
+        <div class="card-actions text-secondary small text-nowrap">
+            <span>共 @(ViewBag.Total) 行</span>
+        </div>
+    </div>
+    <div class="table-responsive" style="max-height:70vh;overflow:auto">
+        <table class="table table-vcenter card-table table-sm text-nowrap">
+            <thead class="sticky-top" style="position:sticky;top:0;z-index:2;background:#fff">
+                <tr>
+                    <th>单号</th><th>单据类型</th><th>日期</th><th>仓库</th><th>部门/车间</th>
+                    <th>商品名称</th><th>商品编码</th><th>规格型号</th><th>单位</th><th>分类</th><th>工序</th>
+                    <th class="text-end">数量</th><th class="text-end">数量扩展1</th><th class="text-end">数量扩展2</th><th class="text-end">数量扩展3</th>
+                    <th class="text-end">单价</th><th class="text-end">金额</th><th>批号</th><th>制单人</th><th>备注</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        <td>@r.FBillNo</td>
+                        <td>@r.FBillTypeEx</td>
+                        <td>@(r.FDate?.ToString("yyyy-MM-dd"))</td>
+                        <td>@r.WarehouseName</td>
+                        <td>@r.DeptName</td>
+                        <td>@r.ItemName</td>
+                        <td>@r.ItemNumber</td>
+                        <td>@r.ItemModel</td>
+                        <td>@r.ItemUnit</td>
+                        <td>@r.ItemClass</td>
+                        <td>@r.StepName</td>
+                        <td class="text-end">@T(r.FNum)</td>
+                        <td class="text-end">@T(r.FNumExt1)</td>
+                        <td class="text-end">@T(r.FNumExt2)</td>
+                        <td class="text-end">@T(r.FNumExt3)</td>
+                        <td class="text-end">@T(r.FPrice)</td>
+                        <td class="text-end">@T(r.FAmount)</td>
+                        <td>@r.FBatchNo</td>
+                        <td>@r.CreaterName</td>
+                        <td>@r.FRemark</td>
+                    </tr>
+                }
+                @if (Model.Rows.Count == 0)
+                {
+                    <tr><td colspan="20" class="text-center text-secondary">无数据（当前筛选条件下没有已审核的库存单据）</td></tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer">
+        @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+    </div>
+</div>
+
+<script>
+// 汇总维度切换（按单据类型 / 按仓库 / 按商品）
+(function () {
+    var dims = ['type', 'warehouse', 'product'];
+    document.querySelectorAll('[data-sdim]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('[data-sdim]').forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            var dim = btn.getAttribute('data-sdim');
+            dims.forEach(function (d) {
+                var el = document.getElementById('sum-' + d);
+                if (el) el.style.display = (d === dim ? 'block' : 'none');
+            });
+        });
+    });
+})();
+</script>

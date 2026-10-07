@@ -1,0 +1,27 @@
+@* 列表筛选「当天 / 本月 / 上月」快捷区间。
+   供同时具备 .quick-range 按钮、#dateFrom / #dateTo 输入与 #filterForm 表单的列表页复用。 *@
+<script>
+    (function () {
+        function fmt(d) {
+            return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2);
+        }
+        document.querySelectorAll('.quick-range').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var now = new Date();
+                var from, to;
+                if (btn.getAttribute('data-range') === 'today') {
+                    from = to = now;
+                } else if (btn.getAttribute('data-range') === 'month') {
+                    from = new Date(now.getFullYear(), now.getMonth(), 1);
+                    to = now;
+                } else {
+                    from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    to = new Date(now.getFullYear(), now.getMonth(), 0);
+                }
+                document.getElementById('dateFrom').value = fmt(from);
+                document.getElementById('dateTo').value = fmt(to);
+                document.getElementById('filterForm').submit();
+            });
+        });
+    })();
+</script>

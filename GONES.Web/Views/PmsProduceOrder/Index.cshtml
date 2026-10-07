@@ -1,0 +1,170 @@
+@using GONES.Web.Models
+@model List<ProduceOrderListRow>
+@{
+    ViewBag.Title = "生产单维护";
+    var hasRows = Model.Count > 0;
+    var filter = (Dictionary<string, string>)ViewBag.Filter;
+    Func<short, string> auditBadge = s => s == 0 ? "bg-secondary-lt" : "bg-green-lt";
+    Func<short, string> auditText = s => s == 0 ? "未审核" : "已审核";
+    Func<short?, string> orderBadge = s => s == 1 ? "bg-azure-lt" : (s == 2 ? "bg-cyan-lt" : "bg-secondary-lt");
+    Func<short?, string> orderText = s => s == 1 ? "已领料" : (s == 2 ? "已入库" : "未处理");
+    // 与服务端 W1 硬拦（仓库数据权限）同源的提示语。
+    var outOfScopeTitle = "该单据包含不属于您管理仓库的明细，禁止操作";
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto d-print-none">
+            <a class="btn btn-primary" href="/PmsProduceOrder/Create">新增生产单</a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据编号</label>
+                <input type="text" class="form-control form-control-sm" name="billNo" value="@filter["billNo"]" placeholder="模糊匹配" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">审核状态</label>
+                <select class="form-select form-select-sm" name="status">
+                    <option value="-1">全部</option>
+                    @Html.Raw("<option value=\"0\"" + (filter["status"] == "0" ? " selected" : "") + ">未审核</option>")
+                    @Html.Raw("<option value=\"1\"" + (filter["status"] == "1" ? " selected" : "") + ">已审核</option>")
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">生产状态</label>
+                <select class="form-select form-select-sm" name="orderStatus">
+                    <option value="-1">全部</option>
+                    @Html.Raw("<option value=\"0\"" + (filter["orderStatus"] == "0" ? " selected" : "") + ">未处理</option>")
+                    @Html.Raw("<option value=\"1\"" + (filter["orderStatus"] == "1" ? " selected" : "") + ">已领料</option>")
+                    @Html.Raw("<option value=\"2\"" + (filter["orderStatus"] == "2" ? " selected" : "") + ">已入库</option>")
+                </select>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/PmsProduceOrder">清空</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">生产单列表</h3>
+        <div class="card-actions">
+            <span class="badge bg-azure-lt">本页 @Model.Count 单</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm">
+            <thead>
+                <tr>
+                    <th>单据日期</th>
+                    <th>审核状态</th>
+                    <th>生产状态</th>
+                    <th>单据编号</th>
+                    <th>生产部门</th>
+                    <th>来源要货单</th>
+                    <th>申请人</th>
+                    <th>产品</th>
+                    <th class="text-end">产品项数</th>
+                    <th class="text-end">计划总量</th>
+                    <th>备注</th>
+                    <th class="w-1">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!hasRows)
+                {
+                    <tr><td colspan="12" class="text-center text-secondary py-4">暂无符合条件的生产单。</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    <tr>
+                        <td class="text-secondary">@r.Date?.ToString("yyyy-MM-dd")</td>
+                        <td><span class="badge @auditBadge(r.Status)">@auditText(r.Status)</span></td>
+                        <td><span class="badge @orderBadge(r.OrderStatus)">@orderText(r.OrderStatus)</span></td>
+                        <td>@r.BillNo</td>
+                        <td>@r.DeptName</td>
+                        <td class="text-secondary">@r.ApplyNo</td>
+                        <td>@r.ApplyerName</td>
+                        <td>@r.ProductSummary</td>
+                        <td class="text-end">@r.ProductCount</td>
+                        <td class="text-end">@string.Format("{0:0.00}", r.PlanTotal)</td>
+                        <td class="text-secondary">@r.Remark</td>
+                        <td class="text-nowrap">
+                            @if (r.Status == 0 && !r.CanModify)
+                            {
+                                @* W1：产出未全部属于本仓库 ⇒ 只给查看。 *@
+                                <a class="btn btn-sm btn-outline-secondary" href="/PmsProduceOrder/Detail/@r.InterId">查看</a>
+                                <button type="button" class="btn btn-sm btn-outline-primary" disabled title="@outOfScopeTitle">修改</button>
+                                <button type="button" class="btn btn-sm btn-outline-success" disabled title="@outOfScopeTitle">审核</button>
+                                <button type="button" class="btn btn-sm btn-outline-danger" disabled title="@outOfScopeTitle">删除</button>
+                            }
+                            else if (r.Status == 0)
+                            {
+                                <a class="btn btn-sm btn-outline-primary" href="/PmsProduceOrder/Edit/@r.InterId">修改</a>
+                                <form method="post" action="/PmsProduceOrder/Audit/@r.InterId" class="d-inline">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-sm btn-outline-success"
+                                            data-confirm data-confirm-title="审核确认"
+                                            data-confirm-message="确认审核生产单 [@r.BillNo] 吗？"
+                                            data-confirm-yes="审核" data-confirm-yes-class="btn-primary">审核</button>
+                                </form>
+                                <form method="post" action="/PmsProduceOrder/Delete/@r.InterId" class="d-inline">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            data-confirm data-confirm-title="删除确认"
+                                            data-confirm-message="确认删除生产单 [@r.BillNo] 吗？此操作不可恢复！"
+                                            data-confirm-yes="删除">删除</button>
+                                </form>
+                            }
+                            else if (r.OrderStatus != 2 && !r.CanModify)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" href="/PmsProduceOrder/Detail/@r.InterId">查看</a>
+                                <button type="button" class="btn btn-sm btn-outline-warning" disabled title="@outOfScopeTitle">反审核</button>
+                            }
+                            else if (r.OrderStatus != 2)
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" href="/PmsProduceOrder/Detail/@r.InterId">查看</a>
+                                <form method="post" action="/PmsProduceOrder/UnAudit/@r.InterId" class="d-inline">
+                                    @Html.AntiForgeryToken()
+                                    <button type="submit" class="btn btn-sm btn-outline-warning"
+                                            data-confirm data-confirm-title="反审核确认"
+                                            data-confirm-message="确认反审核生产单 [@r.BillNo] 吗？"
+                                            data-confirm-yes="反审核" data-confirm-yes-class="btn-primary">反审核</button>
+                                </form>
+                            }
+                            else
+                            {
+                                <a class="btn btn-sm btn-outline-secondary" href="/PmsProduceOrder/Detail/@r.InterId">查看</a>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>

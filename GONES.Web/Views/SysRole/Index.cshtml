@@ -1,0 +1,185 @@
+@{
+    ViewBag.Title = "角色管理";
+    var roles = (System.Collections.Generic.List<GONES.Model.Pg.t_ERP_Role>)ViewBag.Roles;
+    int selectedId = (int)ViewBag.SelectedId;
+    var tree = (System.Collections.Generic.List<GONES.Web.Models.RoleMenuNode>)ViewBag.MenuTree;
+    var users = (System.Collections.Generic.List<GONES.Model.Pg.t_ERP_UserInfo>)ViewBag.Users;
+    var selectedRole = roles.FirstOrDefault(r => r.ID == selectedId);
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto btn-list">
+            <a class="btn btn-primary" href="/SysRole/Create">新建</a>
+            @if (selectedId > 0)
+            {
+                <a class="btn" href="/SysRole/Edit/@selectedId">修改</a>
+                <form asp-action="Delete" asp-route-id="@selectedId" method="post" class="d-inline">
+                    <button type="submit" class="btn btn-outline-danger"
+                            data-confirm
+                            data-confirm-title="删除角色"
+                            data-confirm-message="确定删除角色“@(selectedRole?.RoleName ?? "")”吗？"
+                            data-confirm-yes="删除"
+                            data-confirm-yes-class="btn-danger">删除</button>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success m-0 mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger m-0 mb-3">@TempData["Error"]</div>
+}
+
+<div class="row g-3">
+    <!-- 左侧：角色列表 -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><h3 class="card-title">角色列表</h3></div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table table-hover mb-0">
+                    <thead>
+                        <tr>
+                            <th>角色名称</th>
+                            <th>角色备注</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var r in roles)
+                        {
+                            <tr class="@(r.ID == selectedId ? "table-active" : "")" style="cursor:pointer;"
+                                onclick="location.href='/SysRole?id=@r.ID'">
+                                <td>@r.RoleName</td>
+                                <td class="text-secondary">@r.RoleMemo</td>
+                            </tr>
+                        }
+                        @if (roles.Count == 0)
+                        {
+                            <tr><td colspan="2" class="text-center text-secondary py-4">暂无角色</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：权限树 + 用户列表 -->
+    <div class="col-lg-8">
+        <div class="row g-3">
+            <div class="col-12">
+                <form asp-action="SavePermission" method="post">
+                    <input type="hidden" name="roleId" value="@selectedId" />
+                    <div class="card">
+                        <div class="card-header">
+                            <h3 class="card-title">功能权限列表</h3>
+                            <div class="card-actions">
+                                <button type="submit" class="btn btn-primary">授权保存</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            @if (selectedId > 0)
+                            {
+                                <ul class="list-unstyled">
+                                    <li>
+                                        <label class="form-check">
+                                            <input type="checkbox" class="form-check-input" checked disabled />
+                                            <span class="form-check-label">当前角色权限列表</span>
+                                        </label>
+                                        <ul class="list-unstyled ms-4">
+                                            @foreach (var node in tree)
+                                            {
+                                                @await Html.PartialAsync("_RoleMenuNode", node)
+                                            }
+                                        </ul>
+                                    </li>
+                                </ul>
+                            }
+                            else
+                            {
+                                <div class="text-secondary text-center py-4">请在左侧选择一个角色</div>
+                            }
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header"><h3 class="card-title">用户列表</h3></div>
+                    <div class="table-responsive">
+                        <table class="table table-vcenter card-table mb-0">
+                            <thead>
+                                <tr>
+                                    <th>编号</th>
+                                    <th>账号</th>
+                                    <th>姓名</th>
+                                    <th>部门ID</th>
+                                    <th>门店</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var u in users)
+                                {
+                                    <tr>
+                                        <td>@u.ID</td>
+                                        <td>@u.Account</td>
+                                        <td>@u.UserName</td>
+                                        <td>@u.DEPID</td>
+                                        <td>@u.Shop</td>
+                                    </tr>
+                                }
+                                @if (users.Count == 0)
+                                {
+                                    <tr><td colspan="5" class="text-center text-secondary py-4">该角色下暂无启用用户</td></tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // 权限树级联勾选：父节点勾选/取消时同步所有子孙节点；子节点变化时同步父节点状态
+    document.addEventListener('DOMContentLoaded', function () {
+        var tree = document.querySelector('.card-body > ul.list-unstyled');
+        if (!tree) return;
+
+        tree.addEventListener('change', function (e) {
+            var cb = e.target;
+            if (!cb.matches('input[name="menuIds"]')) return;
+
+            var checked = cb.checked;
+            var li = cb.closest('li');
+            if (!li) return;
+
+            // 向下：同步所有后代 checkbox
+            var descendants = li.querySelectorAll('ul input[name="menuIds"]');
+            descendants.forEach(function (d) { d.checked = checked; });
+
+            // 向上：根据直接子节点状态更新所有祖先 checkbox
+            var parentLi = li.parentElement.closest('li');
+            while (parentLi) {
+                var parentCb = parentLi.querySelector(':scope > label input[name="menuIds"]');
+                var childUl = parentLi.querySelector(':scope > ul');
+                if (parentCb && childUl) {
+                    var children = childUl.querySelectorAll(':scope > li > label input[name="menuIds"]');
+                    var allChecked = true;
+                    for (var i = 0; i < children.length; i++) {
+                        if (!children[i].checked) { allChecked = false; break; }
+                    }
+                    parentCb.checked = allChecked;
+                }
+                parentLi = parentLi.parentElement.closest('li');
+            }
+        });
+    });
+</script>
+}

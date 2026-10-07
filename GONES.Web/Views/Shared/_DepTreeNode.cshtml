@@ -1,0 +1,54 @@
+@model GONES.Web.Models.DepartmentNode
+@{
+    string baseUrl = (string)(ViewBag.DepTreeBaseUrl ?? "/SysDepartment");
+    string param = (string)(ViewBag.DepTreeParam ?? "pid");
+    int currentId = (int)(ViewBag.CurrentDepId ?? 0);
+    var expandedIds = (System.Collections.Generic.HashSet<int>)(ViewBag.DepExpandedIds ?? new System.Collections.Generic.HashSet<int>());
+    bool hasChildren = Model.Children.Count > 0;
+    bool isOpen = hasChildren && expandedIds.Contains(Model.Id);
+}
+<li class="tree-node" data-node-id="@Model.Id">
+    <div class="tree-item @(currentId == Model.Id ? "active" : "")">
+        @if (hasChildren)
+        {
+            <button type="button" class="tree-toggle @(isOpen ? "open" : "")" aria-label="展开/折叠" aria-expanded="@(isOpen ? "true" : "false")">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 6l6 6l-6 6" />
+                </svg>
+            </button>
+        }
+        else
+        {
+            <span class="tree-toggle-placeholder"></span>
+        }
+        <a class="tree-link" href="@baseUrl?@param=@Model.Id">
+            @Model.Name
+            @if (Model.IsDep == 2)
+            {
+                <span class="badge bg-azure-lt ms-1">车间</span>
+            }
+            @if (Model.IsDep == 1)
+            {
+                <span class="badge bg-orange-lt ms-1">仓库</span>
+            }
+            @if (Model.IsDep == 3)
+            {
+                <span class="badge bg-teal-lt ms-1">班组</span>
+            }
+            @if (!Model.Enabled)
+            {
+                <span class="badge bg-red-lt ms-1">停用</span>
+            }
+        </a>
+    </div>
+    @if (hasChildren)
+    {
+        <ul class="tree-children list-unstyled @(isOpen ? "" : "d-none")">
+            @foreach (var child in Model.Children)
+            {
+                @await Html.PartialAsync("_DepTreeNode", child)
+            }
+        </ul>
+    }
+</li>

@@ -1,0 +1,183 @@
+@using GONES.Web.Models
+@model List<ProductBomStatGroup>
+@{
+    ViewData["Title"] = "产品结构图汇总情况";
+    var filter = ViewBag.Filter as Dictionary<string, string> ?? new Dictionary<string, string>();
+    var warehouses = ViewBag.WarehouseOptions as List<GONES.Model.Pg.t_ERP_Department> ?? new List<GONES.Model.Pg.t_ERP_Department>();
+    var steps = ViewBag.StepOptions as List<ProductBomStatStepOption> ?? new List<ProductBomStatStepOption>();
+    var total = ViewBag.Total as ProductBomStatGroup ?? new ProductBomStatGroup();
+    int? warehouseId = ViewBag.WarehouseId;
+    int? stepId = ViewBag.StepId;
+    bool onlyPacking = ViewBag.OnlyPacking as bool? ?? false;
+    string elapsed = ViewBag.Elapsed as string ?? "0";
+
+    // 导出链接沿用当前筛选
+    var qs = new List<string>();
+    if (warehouseId.HasValue) qs.Add("warehouseId=" + warehouseId.Value);
+    if (stepId.HasValue) qs.Add("stepId=" + stepId.Value);
+    if (!string.IsNullOrEmpty(filter["dateFrom"])) qs.Add("dateFrom=" + filter["dateFrom"]);
+    if (!string.IsNullOrEmpty(filter["dateTo"])) qs.Add("dateTo=" + filter["dateTo"]);
+    if (onlyPacking) qs.Add("onlyPacking=true");
+    var exportUrl = "/ProductBomStat/Export" + (qs.Count > 0 ? "?" + string.Join("&", qs) : "");
+
+    string T(decimal v) => v.ToString("0.####");
+    string M(decimal? v) => v.HasValue ? v.Value.ToString("0.00") : "";
+    int COLS = 13;
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col">
+            @* 无 Tab 兜底标题：Tab(iframe) 内由 _Layout 脚本移除，直链打开时显示 *@
+            <h2 class="page-title gones-standalone-title d-none">@(ViewData["Title"])</h2>
+        </div>
+        <div class="col-auto">
+            <a class="btn btn-sm btn-outline-secondary" href="@exportUrl">导出</a>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">仓库名称</label>
+                <select name="warehouseId" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.ID" selected="@(warehouseId != null && warehouseId == w.ID)">@w.DEPName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">工序名称</label>
+                <select name="stepId" class="form-select form-select-sm">
+                    <option value="">全部</option>
+                    @foreach (var s in steps)
+                    {
+                        <option value="@s.Id" selected="@(stepId != null && stepId == s.Id)">@s.Name</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">开始日期</label>
+                <input type="date" class="form-control form-control-sm" name="dateFrom" value="@filter["dateFrom"]" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">结束日期</label>
+                <input type="date" class="form-control form-control-sm" name="dateTo" value="@filter["dateTo"]" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 d-block">&nbsp;</label>
+                <div class="form-check form-check-inline mb-0">
+                    <input class="form-check-input" type="checkbox" id="onlyPacking" name="onlyPacking" value="true" checked="@onlyPacking" />
+                    <label class="form-check-label" for="onlyPacking">只查看包装物</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">刷新</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/ProductBomStat">重置</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">按产品结构任务单汇总</h3>
+        <div class="card-actions text-secondary small text-nowrap">
+            <span>期间：@(string.IsNullOrEmpty(filter["dateFrom"]) ? "历史起" : filter["dateFrom"]) ~ @(string.IsNullOrEmpty(filter["dateTo"]) ? "今" : filter["dateTo"])</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm text-nowrap" id="bomTable">
+            <thead>
+                <tr>
+                    <th>BomID</th>
+                    <th>工序名称</th>
+                    <th>产品分类</th>
+                    <th>产品代码</th>
+                    <th>产品名称</th>
+                    <th>规格型号</th>
+                    <th>单位</th>
+                    <th class="text-end">领料数量</th>
+                    <th class="text-end">退料数量</th>
+                    <th class="text-end">实际出库数量</th>
+                    <th class="text-end">实际出库单价</th>
+                    <th class="text-end">实际出库金额</th>
+                    <th class="text-end">完工入库数量</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var g in Model)
+                {
+                    <tr class="table-secondary bom-group" data-bom="@g.BomId" style="cursor:pointer" title="点击展开/收起">
+                        <td colspan="7" class="fw-bold">▸ 结构图 BomID: @g.BomId（@(g.Rows.Count) 个商品）</td>
+                        <td class="text-end fw-bold">@T(g.QtyGet)</td>
+                        <td class="text-end fw-bold">@T(g.QtyBack)</td>
+                        <td class="text-end fw-bold">@T(g.QtyOut)</td>
+                        <td class="text-end"></td>
+                        <td class="text-end fw-bold">@M(g.OutAmount)</td>
+                        <td class="text-end fw-bold">@T(g.QtyIn)</td>
+                    </tr>
+                    foreach (var r in g.Rows)
+                    {
+                        <tr class="bom-row" data-bom="@g.BomId">
+                            <td class="text-secondary">@r.BomId</td>
+                            <td>@r.StepName</td>
+                            <td class="text-secondary">@r.ItemClass</td>
+                            <td class="text-secondary">@r.ItemNumber</td>
+                            <td>@r.ItemName</td>
+                            <td class="text-secondary">@r.ItemModel</td>
+                            <td class="text-secondary">@r.ItemUnit</td>
+                            <td class="text-end">@T(r.QtyGet)</td>
+                            <td class="text-end">@T(r.QtyBack)</td>
+                            <td class="text-end">@T(r.QtyOut)</td>
+                            <td class="text-end">@M(r.OutPrice)</td>
+                            <td class="text-end">@M(r.OutAmount)</td>
+                            <td class="text-end">@T(r.QtyIn)</td>
+                        </tr>
+                    }
+                }
+                @if (Model.Count == 0)
+                {
+                    <tr><td colspan="@COLS" class="text-center text-secondary py-4">无符合条件的记录</td></tr>
+                }
+            </tbody>
+            @if (Model.Count > 0)
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="7" class="text-end">合计</td>
+                        <td class="text-end">@T(total.QtyGet)</td>
+                        <td class="text-end">@T(total.QtyBack)</td>
+                        <td class="text-end">@T(total.QtyOut)</td>
+                        <td class="text-end"></td>
+                        <td class="text-end">@M(total.OutAmount)</td>
+                        <td class="text-end">@T(total.QtyIn)</td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+    <div class="card-footer text-secondary small">
+        此次加载结构图耗时:@(elapsed)秒
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // 组头点击：展开/收起该 BomID 下所有明细行（默认展开，对应旧窗体 AutoExpandAllGroups）
+        document.querySelectorAll('tr.bom-group').forEach(function (tr) {
+            tr.addEventListener('click', function () {
+                var bom = this.getAttribute('data-bom');
+                var arrow = this.querySelector('td.fw-bold');
+                var rows = document.querySelectorAll('tr.bom-row[data-bom="' + bom + '"]');
+                var hidden = rows.length > 0 && rows[0].style.display === 'none';
+                rows.forEach(function (r) { r.style.display = hidden ? '' : 'none'; });
+                if (arrow) arrow.textContent = arrow.textContent.replace(hidden ? '▸' : '▾', hidden ? '▾' : '▸');
+            });
+        });
+    </script>
+}

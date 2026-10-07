@@ -1,0 +1,7 @@
+@model System.Collections.Generic.List<GONES.Web.Models.MenuNode>
+<ul class="navbar-nav pt-lg-3">
+    @foreach (var node in Model)
+    {
+        @await Html.PartialAsync("~/Views/Shared/Components/Menu/_Node.cshtml", node, new ViewDataDictionary(ViewData) { ["MenuParent"] = "#sidebar-menu" })
+    }
+</ul>

@@ -1,0 +1,609 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model WarehouseReturnEditViewModel
+@{
+    ViewBag.Title = "仓库退料单维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var groupOptions = (List<t_ERP_Department>)ViewBag.GroupOptions;
+    var createrName = (string)ViewBag.CreaterName;
+    var rows = Model.Rows ?? new List<WarehouseReturnRowInput>();
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+
+    // 只读页（Details）把 action 置空并阻断提交：否则浏览器回车隐式提交会打到 Details（无 POST 动作）。
+    // formOnSubmit 为 null 时 Razor 直接省略 onsubmit 属性。
+    var formAction = readOnly ? "" : (isNew ? "/WarehouseReturn/Create" : "/WarehouseReturn/Edit/" + Model.InterId);
+    var formOnSubmit = readOnly ? "return false;" : null;
+
+    // Single source of truth for row field names. Must match WarehouseReturnRowInput properties
+    // and the addRow template below; reindex() uses this list to renumber after add/delete.
+    var rowFields = new[] {
+        "ItemId","BomId","StepId","ProduceId","ProduceNo","StepName","ProductName","Spec",
+        "CategoryName","Unit","BatchStock","PickNum","PickBillId","PickBillNo","PickEntryId",
+        "Num","NumExt1","NumExt2","NumExt3","BatchNo","WarehouseName","Note"
+    };
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看仓库退料单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/WarehouseReturn">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@formAction" onsubmit="@formOnSubmit">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">退料单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">退料日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">摘要</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">退料部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">退料车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">退料小组</label>
+                    <select class="form-select" name="GroupId" id="GroupId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in groupOptions)
+                        {
+                            var sel = (Model.GroupId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">退料人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">退料明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="btnPickPickBill" @(readOnly ? "disabled" : "")>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        选择领料单
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-hint mb-0">从已审核的仓库领料单导入明细，只需填写四项退料数量（正常 / 厂家原因 / 人为原因 / 其它原因）。<strong class="text-danger">厂家原因须单独退料，不能与普通/人为/其它原因同填一行；未填厂家原因时，后三者至少填一项。</strong></div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:8%;">领料单号</th>
+                            <th style="width:7%;">工序名称</th>
+                            <th style="width:13%;">产品名称</th>
+                            <th style="width:7%;" class="text-secondary">规格型号</th>
+                            <th style="width:6%;" class="text-secondary">产品分类</th>
+                            <th style="width:4%;" class="text-secondary">单位</th>
+                            <th style="width:8%;">批号</th>
+                            <th style="width:6%;" class="text-end text-secondary">批次库存</th>
+                            <th style="width:6%;" class="text-end text-secondary">领料出库</th>
+                            <th style="width:6%;" class="text-end">正常退料</th>
+                            <th style="width:6%;" class="text-end">厂家原因</th>
+                            <th style="width:6%;" class="text-end">人为原因</th>
+                            <th style="width:6%;" class="text-end">其它原因</th>
+                            <th style="width:6%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="wkBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr data-itemid="@r.ItemId">
+                                <td class="text-secondary">
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <input type="hidden" name="Rows[@ri].BomId" value="@(r.BomId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].StepId" value="@(r.StepId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].ProduceId" value="@(r.ProduceId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].ProduceNo" value="@r.ProduceNo" />
+                                    <input type="hidden" name="Rows[@ri].StepName" value="@r.StepName" />
+                                    <input type="hidden" name="Rows[@ri].ProductName" value="@r.ProductName" />
+                                    <input type="hidden" name="Rows[@ri].Spec" value="@r.Spec" />
+                                    <input type="hidden" name="Rows[@ri].CategoryName" value="@r.CategoryName" />
+                                    <input type="hidden" name="Rows[@ri].Unit" value="@r.Unit" />
+                                    <input type="hidden" name="Rows[@ri].BatchStock" value="@((r.BatchStock ?? 0m).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].PickNum" value="@((r.PickNum ?? 0m).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].PickBillId" value="@(r.PickBillId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].PickBillNo" value="@r.PickBillNo" />
+                                    <input type="hidden" name="Rows[@ri].PickEntryId" value="@(r.PickEntryId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].BatchNo" value="@r.BatchNo" />
+                                    <input type="hidden" name="Rows[@ri].WarehouseName" value="@r.WarehouseName" />
+                                    <span class="wk-pickbillno">@r.PickBillNo</span>
+                                </td>
+                                <td class="text-secondary"><span class="wk-stepname">@r.StepName</span></td>
+                                <td><span class="wk-productname">@r.ProductName</span></td>
+                                <td class="text-secondary"><span class="wk-spec">@r.Spec</span></td>
+                                <td><span class="badge bg-secondary-lt wk-cat">@r.CategoryName</span></td>
+                                <td class="text-secondary"><span class="wk-unit">@r.Unit</span></td>
+                                <td class="text-secondary text-nowrap"><span class="wk-batchno">@r.BatchNo</span></td>
+                                <td class="text-end text-secondary"><span class="wk-batchstock">@((r.BatchStock ?? 0m).ToString("0.######"))</span></td>
+                                <td class="text-end text-secondary"><span class="wk-picknum">@((r.PickNum ?? 0m).ToString("0.######"))</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].Num" value="@((r.Num ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].NumExt1" value="@((r.NumExt1 ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].NumExt2" value="@((r.NumExt2 ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].NumExt3" value="@((r.NumExt3 ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>@if (!readOnly)
+                                {<button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button>}</td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存仓库退料单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<div class="modal modal-blur fade" id="pickModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择领料单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-hint mb-2">列出已审核的仓库领料单；导入后按行填写四项退料数量，批号自动沿用领料出库批号。</div>
+                <div class="table-responsive" style="max-height:380px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1">单据编号</th>
+                                <th>单据日期</th>
+                                <th>领料部门</th>
+                                <th class="text-end">行数</th>
+                                <th class="text-end">出库合计</th>
+                                <th class="w-1"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="pickListBody">
+                            <tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="pickModalHint">选择一张已审核的领料单，导入其全部出库明细</span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 仓库退料单统一消息弹窗：替换浏览器原生 alert，保持与全局确认弹窗一致的风格 -->
+<div class="modal modal-blur fade" id="wr-alert-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            <div class="modal-status bg-danger"></div>
+            <div class="modal-body text-center py-4">
+                <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon mb-2 text-danger icon-lg"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.535a1.914 1.914 0 0 0 -3.274 0z" /><path d="M12 16h.01" /></svg>
+                <h3 class="modal-title">提示</h3>
+                <div class="text-secondary" id="wr-alert-message">确定要继续吗？</div>
+            </div>
+            <div class="modal-footer">
+                <div class="w-100">
+                    <button type="button" class="btn btn-danger w-100" data-bs-dismiss="modal">确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('wkBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var pickModalEl = document.getElementById('pickModal');
+            var pickListBody = document.getElementById('pickListBody');
+            var pickModalHint = document.getElementById('pickModalHint');
+            var pickModal = (typeof bootstrap !== 'undefined' && pickModalEl)
+                ? new bootstrap.Modal(pickModalEl) : null;
+
+            var wrAlertModalEl = document.getElementById('wr-alert-modal');
+            var wrAlertModal = (typeof bootstrap !== 'undefined' && wrAlertModalEl)
+                ? new bootstrap.Modal(wrAlertModalEl) : null;
+            var wrAlertMessage = document.getElementById('wr-alert-message');
+            function wrAlert(msg) {
+                if (wrAlertModal && wrAlertMessage) {
+                    wrAlertMessage.textContent = msg;
+                    wrAlertModal.show();
+                } else {
+                    gonesToast(msg);
+                }
+            }
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var groupSel = document.getElementById('GroupId');
+            var managerSel = document.getElementById('ManagerId');
+
+            var ROW_FIELDS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(rowFields).Replace("</", "<\\/"));
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) { fillOptions(workShopSel, [], '-- 不指定 --'); return Promise.resolve(); }
+                return fetch('/WarehouseReturn/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadGroups(workShopId) {
+                if (!workShopId) { fillOptions(groupSel, [], '-- 不指定 --'); return Promise.resolve(); }
+                return fetch('/WarehouseReturn/GetGroups?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(groupSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId, groupId) {
+                var scope = (groupId && parseInt(groupId, 10) > 0) ? groupId : workShopId;
+                if (!scope) { fillOptions(managerSel, [], '-- 不指定 --'); return Promise.resolve(); }
+                return fetch('/WarehouseReturn/GetManagers?workShopId=' + workShopId + '&groupId=' + scope)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            // Backfill the four header selects from the source pick bill header.
+            // Cascades are async, so reload each level before selecting its value;
+            // if a value is missing from the reloaded options the assignment is a
+            // silent no-op, so a re-selection dedupe would be needed only if the
+            // pick bill ever violates the cascade scope (it cannot: it was saved
+            // through the same cascades).
+            function applyHeaderFromPick(h) {
+                if (!h) return;
+                var deptId = parseInt(h.deptId, 10) || 0;
+                var wsId = parseInt(h.workShopId, 10) || 0;
+                var gid = parseInt(h.groupId, 10) || 0;
+                var mid = parseInt(h.managerId, 10) || 0;
+                if (deptId && deptSel) {
+                    deptSel.value = String(deptId);
+                    loadWorkShops(deptId).then(function () {
+                        if (!wsId) return null;
+                        workShopSel.value = String(wsId);
+                        return loadGroups(wsId).then(function () {
+                            if (gid) groupSel.value = String(gid);
+                            return loadManagers(wsId, groupSel.value).then(function () {
+                                if (mid) managerSel.value = String(mid);
+                            });
+                        });
+                    }).catch(function (e) { console.error(e); });
+                }
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = ''; groupSel.value = ''; managerSel.value = '';
+                    fillOptions(groupSel, [], '-- 不指定 --');
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    groupSel.value = ''; managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadGroups(id);
+                });
+            }
+            if (groupSel) {
+                groupSel.addEventListener('change', function () {
+                    var gid = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(workShopSel.value, gid);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() { if (rowCount) rowCount.textContent = body.rows.length + ' 行'; }
+
+            function reindex() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < ROW_FIELDS.length; k++) {
+                        // The "." prefix is REQUIRED: this module has fields whose names are
+                        // suffixes of others (Num vs PickNum/NumExt1..3); a bare [name$="Num"]
+                        // would grab the hidden PickNum first and corrupt the row on reindex.
+                        var el = trs[i].querySelector('[name$=".' + ROW_FIELDS[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + ROW_FIELDS[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+            }, true);
+
+            function addRow(item) {
+                // Skip rows already imported (same source pick row)
+                var peid = String(item.pickEntryId || 0);
+                var existing = body.querySelectorAll('[name$=".PickEntryId"]');
+                for (var i = 0; i < existing.length; i++) {
+                    if (existing[i].value === peid) return;
+                }
+                var pickNum = Number(item.pickNum || 0) || 0;
+                var batchStock = Number(item.batchStock || 0) || 0;
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', item.itemId);
+                // Hidden-only fields; the four quantities + Note are real inputs below and
+                // MUST NOT be duplicated here (two inputs sharing one name break model binding).
+                var fields = [
+                    ['ItemId', item.itemId],
+                    ['BomId', item.bomId || 0],
+                    ['StepId', item.stepId || 0],
+                    ['ProduceId', item.produceId || 0],
+                    ['ProduceNo', item.produceNo || ''],
+                    ['StepName', item.stepName || ''],
+                    ['ProductName', item.productName || ''],
+                    ['Spec', item.spec || ''],
+                    ['CategoryName', item.categoryName || ''],
+                    ['Unit', item.unit || ''],
+                    ['BatchStock', String(batchStock)],
+                    ['PickNum', String(pickNum)],
+                    ['PickBillId', item.pickBillId || 0],
+                    ['PickBillNo', item.pickBillNo || ''],
+                    ['PickEntryId', item.pickEntryId || 0],
+                    ['BatchNo', item.batchNo || ''],
+                    ['WarehouseName', item.warehouseName || ''],
+                ];
+                var hiddenHtml = '';
+                for (var i = 0; i < fields.length; i++) {
+                    hiddenHtml += '<input type="hidden" name="Rows[0].' + fields[i][0] + '" value="' + esc(fields[i][1]) + '">';
+                }
+                tr.innerHTML =
+                    '<td class="text-secondary">' + hiddenHtml + '<span class="wk-pickbillno">' + esc(item.pickBillNo) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-stepname">' + esc(item.stepName) + '</span></td>' +
+                    '<td><span class="wk-productname">' + esc(item.productName) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-spec">' + esc(item.spec) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt wk-cat">' + esc(item.categoryName) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-unit">' + esc(item.unit) + '</span></td>' +
+                    '<td class="text-secondary text-nowrap"><span class="wk-batchno">' + esc(item.batchNo) + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-batchstock">' + batchStock + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-picknum">' + pickNum + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].Num" value="' + pickNum.toFixed(2) + '"></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].NumExt1" value="0.00"></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].NumExt2" value="0.00"></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].NumExt3" value="0.00"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+            }
+
+            // ---------------------------------------------------------------- picking-bill picker modal
+
+            function renderPickList(list) {
+                if (!list || list.length === 0) {
+                    pickListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">暂无已审核的领料单</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var b = list[i];
+                    h += '<tr data-interid="' + esc(b.interId) + '">' +
+                        '<td class="text-secondary">' + esc(b.billNo) + '</td>' +
+                        '<td>' + esc(b.date) + '</td>' +
+                        '<td>' + esc(b.deptName) + '</td>' +
+                        '<td class="text-end"><span class="badge bg-azure-lt">' + (b.rowCount || 0) + '</span></td>' +
+                        '<td class="text-end">' + Number(b.totalQty || 0).toFixed(2) + '</td>' +
+                        '<td><button type="button" class="btn btn-sm btn-primary pick-import">导入</button></td>' +
+                        '</tr>';
+                }
+                pickListBody.innerHTML = h;
+            }
+
+            function loadPickList() {
+                pickListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>';
+                fetch('/WarehouseReturn/GetPickBills')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderPickList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        pickListBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            function importPick(interId) {
+                var added = 0;
+                if (pickModalHint) pickModalHint.textContent = '正在导入…';
+                fetch('/WarehouseReturn/GetPickBillDetails?interId=' + encodeURIComponent(interId))
+                    .then(function (r) { return r.json(); })
+                    .then(function (rows) {
+                        for (var i = 0; i < rows.length; i++) {
+                            addRow(rows[i]);
+                            added++;
+                        }
+                        if (added > 0) applyHeaderFromPick(rows[0]);
+                        if (pickModalHint) pickModalHint.textContent = '已导入 ' + added + ' 行退料明细';
+                        if (pickModal) pickModal.hide();
+                        else if (pickModalEl) pickModalEl.classList.remove('show');
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        if (pickModalHint) pickModalHint.textContent = '导入失败，请重试';
+                    });
+            }
+
+            var pickBtn = document.getElementById('btnPickPickBill');
+            if (pickBtn) {
+                pickBtn.addEventListener('click', function () {
+                    if (pickModalHint) pickModalHint.textContent = '选择一张已审核的领料单，导入其全部出库明细';
+                    loadPickList();
+                    if (pickModal) pickModal.show();
+                });
+            }
+            if (pickListBody) {
+                pickListBody.addEventListener('click', function (e) {
+                    var btn = e.target.closest('.pick-import');
+                    if (!btn) return;
+                    var tr = btn.closest('tr');
+                    if (!tr) return;
+                    importPick(tr.getAttribute('data-interid'));
+                });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('wk-del')) { e.target.closest('tr').remove(); reindex(); }
+            });
+
+            // 前端即时提示：厂家原因必须单独退料；未填厂家原因时正常/人为/其它至少填一项。
+            // 服务端 ValidateBill 仍会兜底校验。
+            var wrForm = body.closest('form');
+            if (wrForm) {
+                wrForm.addEventListener('submit', function (e) {
+                    var rows = body.querySelectorAll('tr');
+                    for (var i = 0; i < rows.length; i++) {
+                        var tr = rows[i];
+                        var numEl = tr.querySelector('[name$=".Num"]');
+                        if (!numEl) continue;
+                        var num = parseFloat(numEl.value) || 0;
+                        var ext1 = parseFloat((tr.querySelector('[name$=".NumExt1"]') || {}).value || '0') || 0;
+                        var ext2 = parseFloat((tr.querySelector('[name$=".NumExt2"]') || {}).value || '0') || 0;
+                        var ext3 = parseFloat((tr.querySelector('[name$=".NumExt3"]') || {}).value || '0') || 0;
+                        if (ext1 > 0.0001) {
+                            if (num > 0.0001 || ext2 > 0.0001 || ext3 > 0.0001) {
+                                wrAlert('第 ' + (i + 1) + ' 行：厂家原因需单独退料，不能同时填写正常/人为/其它原因数量！');
+                                e.preventDefault();
+                                return;
+                            }
+                        } else if (num <= 0.0001 && ext2 <= 0.0001 && ext3 <= 0.0001) {
+                            wrAlert('第 ' + (i + 1) + ' 行：未填写厂家原因时，必须填写正常/人为/其它原因中的至少一项！');
+                            e.preventDefault();
+                            return;
+                        }
+                    }
+                });
+            }
+
+            refreshCount();
+        })();
+    </script>
+}

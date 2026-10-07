@@ -1,0 +1,274 @@
+@using GONES.Web.Models
+@model List<BatchStockListRow>
+@{
+    ViewBag.Title = "生产批次管理";
+    var filter = (Dictionary<string, string>)ViewBag.Filter;
+    var classOptions = (List<string>)ViewBag.ClassOptions;
+    var isAdmin = (bool)ViewBag.IsAdmin;
+    var summary = (BatchStockSummary)ViewBag.Summary;
+    var hasRows = Model.Count > 0;
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto d-print-none">
+            @if (isAdmin)
+            {
+                <form method="post" action="/BatchStock/Recalc" class="d-inline">
+                    @Html.AntiForgeryToken()
+                    <button type="submit" class="btn btn-outline-primary"
+                            data-confirm data-confirm-title="对账重算确认"
+                            data-confirm-message="将按出入库单据重新计算全部批次与商品库存缓存，并报告不一致处数。是否继续？"
+                            data-confirm-yes="重算">对账重算</button>
+                </form>
+            }
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="row g-2 mb-3">
+    <div class="col-auto">
+        <div class="card card-sm">
+            <div class="card-body">
+                <div class="text-secondary small">批次数量合计（缓存）</div>
+                <div class="h3 mb-0">@string.Format("{0:0.####}", summary.TotalCache)</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-auto">
+        <div class="card card-sm">
+            <div class="card-body">
+                <div class="text-secondary small">实际库存合计（账本）</div>
+                <div class="h3 mb-0">@string.Format("{0:0.####}", summary.TotalTruth)</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-auto">
+        <div class="card card-sm">
+            <div class="card-body">
+                <div class="text-secondary small">缓存与账本不一致批次</div>
+                <div class="h3 mb-0 @(summary.DriftCount > 0 ? "text-danger" : "text-success")">@summary.DriftCount</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">批号</label>
+                <input type="text" class="form-control form-control-sm" name="batchNo" value="@filter["batchNo"]" placeholder="模糊匹配" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">商品（代码/名称/规格）</label>
+                <input type="text" class="form-control form-control-sm" name="keyword" value="@filter["keyword"]" placeholder="模糊匹配" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">分类</label>
+                <select class="form-select form-select-sm" name="classLb">
+                    <option value="" selected="@(string.IsNullOrEmpty(filter["classLb"]))">全部</option>
+                    @foreach (var lb in classOptions)
+                    {
+                        <option value="@lb" selected="@(filter["classLb"] == lb)">@lb</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0 d-block">&nbsp;</label>
+                <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="checkbox" name="onlyPositive" value="1" id="onlyPositive" checked="@(filter["onlyPositive"] == "1")" />
+                    <label class="form-check-label" for="onlyPositive">只看有库存</label>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/BatchStock">清空</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">批次库存列表</h3>
+        <div class="card-actions">
+            <span class="badge bg-azure-lt">共 @Model.Count 条</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm">
+            <thead>
+                <tr>
+                    <th>批号</th>
+                    <th>商品代码</th>
+                    <th>商品名称</th>
+                    <th>规格</th>
+                    <th>分类</th>
+                    <th class="text-end">批次数量(缓存)</th>
+                    <th class="text-end">实际库存(账本)</th>
+                    <th class="text-end">差异</th>
+                    <th class="text-end">单价</th>
+                    <th>入库日期</th>
+                    <th class="w-1">状态</th>
+                    <th>单据类型</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!hasRows)
+                {
+                    <tr><td colspan="12" class="text-center text-secondary py-4">暂无符合条件的批次。</td></tr>
+                }
+                @foreach (var r in Model)
+                {
+                    bool drift = Math.Abs(r.Drift) > 0.0001m;
+                    <tr class="batch-row" style="cursor:pointer" data-batch-no="@r.BatchNo" data-batch-item="@r.Cpjc">
+                        <td class="text-nowrap">@r.BatchNo</td>
+                        <td>@r.Cpbm</td>
+                        <td>@r.Cpjc</td>
+                        <td class="text-secondary">@r.Cpgg</td>
+                        <td class="text-secondary">@r.Cplb</td>
+                        <td class="text-end">@string.Format("{0:0.####}", r.CacheQty)</td>
+                        <td class="text-end">@string.Format("{0:0.####}", r.TruthQty)</td>
+                        <td class="text-end @(drift ? "text-danger fw-bold" : "text-secondary")">
+                            @(drift ? string.Format("{0:+0.####;-0.####;0}", r.Drift) : "0")
+                        </td>
+                        <td class="text-end text-secondary">@string.Format("{0:0.####}", r.Price ?? 0m)</td>
+                        <td class="text-secondary">@r.BegDate?.ToString("yyyy-MM-dd")</td>
+                        <td class="text-center">
+                            @if (r.State)
+                            {
+                                <span class="badge bg-green-lt">启用</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary-lt">停用</span>
+                            }
+                        </td>
+                        <td class="text-secondary">@r.BillTypeEx</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>
+
+<!-- 批次流水追溯弹窗 -->
+<div class="modal modal-blur fade" id="traceModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">批次流水追溯 - <span id="traceBatchNo"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-secondary small mb-2" id="traceItem"></div>
+                <div class="table-responsive">
+                    <table class="table table-sm card-table">
+                        <thead>
+                            <tr>
+                                <th>方向</th>
+                                <th>单据编号</th>
+                                <th>单据类型</th>
+                                <th>日期</th>
+                                <th>商品</th>
+                                <th class="text-end">数量</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="traceBody">
+                            <tr><td colspan="7" class="text-center text-secondary py-3">加载中…</td></tr>
+                        </tbody>
+                        <tfoot id="traceFoot" class="d-none">
+                            <tr class="fw-bold border-top-2">
+                                <td colspan="5" class="text-end" id="traceFootLabel">合计</td>
+                                <td class="text-end" id="traceFootQty"></td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var traceModal = document.getElementById('traceModal');
+            var modal = bootstrap.Modal.getOrCreateInstance(traceModal);
+
+            document.querySelectorAll('.batch-row').forEach(function (tr) {
+                tr.addEventListener('click', function () {
+                    var batchNo = tr.getAttribute('data-batch-no');
+                    var itemName = tr.getAttribute('data-batch-item');
+                    document.getElementById('traceBatchNo').textContent = batchNo;
+                    document.getElementById('traceItem').textContent = itemName ? ('商品：' + itemName) : '';
+                    document.getElementById('traceBody').innerHTML =
+                        '<tr><td colspan="7" class="text-center text-secondary py-3">加载中…</td></tr>';
+                    document.getElementById('traceFoot').classList.add('d-none');
+                    modal.show();
+
+                    fetch('/BatchStock/Trace?batchNo=' + encodeURIComponent(batchNo))
+                        .then(function (r) { return r.json(); })
+                        .then(function (rows) {
+                            if (!rows || rows.length === 0) {
+                                document.getElementById('traceBody').innerHTML =
+                                    '<tr><td colspan="7" class="text-center text-secondary py-3">该批次暂无流水记录。</td></tr>';
+                                return;
+                            }
+                            var html = '';
+                            var inSum = 0, outSum = 0;
+                            // 纵深防御：Trace 接口虽是内部数据源，仍对文本做 HTML 转义，
+                            // 与其余同类页（已用 esc()）保持一致。
+                            var esc = function (s) {
+                                return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+                                });
+                            };
+                            rows.forEach(function (x) {
+                                var cls = x.robEx === '\u51fa' ? 'text-danger' : 'text-success';
+                                var d = x.date ? x.date.replace('T', ' ').slice(0, 10) : '';
+                                var num = parseFloat(x.num || 0) || 0;
+                                if (x.robEx === '\u51fa') outSum += num; else inSum += num;
+                                html += '<tr>'
+                                    + '<td class="' + cls + '">' + esc(x.robEx || '') + '</td>'
+                                    + '<td class="text-nowrap">' + esc(x.billNo || '') + '</td>'
+                                    + '<td>' + esc(x.billTypeEx || '') + '</td>'
+                                    + '<td class="text-secondary">' + esc(d) + '</td>'
+                                    + '<td>' + esc(x.itemName || x.itemCode || '') + '</td>'
+                                    + '<td class="text-end">' + num.toFixed(4) + '</td>'
+                                    + '<td class="text-secondary">' + esc(x.note || '') + '</td>'
+                                    + '</tr>';
+                            });
+                            document.getElementById('traceBody').innerHTML = html;
+                            // summary row: balance = in - out, shown right in the qty column
+                            var fmt = function (v) { return String(parseFloat(v.toFixed(4))); };
+                            document.getElementById('traceFootLabel').textContent =
+                                '合计（入 ' + fmt(inSum) + ' ／ 出 ' + fmt(outSum) + '）';
+                            document.getElementById('traceFootQty').textContent = fmt(inSum - outSum);
+                            document.getElementById('traceFoot').classList.remove('d-none');
+                        })
+                        .catch(function () {
+                            document.getElementById('traceBody').innerHTML =
+                                '<tr><td colspan="7" class="text-center text-danger py-3">加载失败。</td></tr>';
+                        });
+                });
+            });
+        })();
+    </script>
+}

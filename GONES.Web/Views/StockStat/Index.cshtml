@@ -1,0 +1,189 @@
+@using GONES.Web.Models
+@model List<StockStatRow>
+@{
+    ViewData["Title"] = "生产进销存情况统计";
+    var filter = ViewBag.Filter as Dictionary<string, string> ?? new Dictionary<string, string>();
+    var warehouses = ViewBag.WarehouseOptions as List<GONES.Model.Pg.t_ERP_Department> ?? new List<GONES.Model.Pg.t_ERP_Department>();
+    var categories = ViewBag.CategoryOptions as List<string> ?? new List<string>();
+    var summary = ViewBag.Summary as StockStatSummary;
+    string T(decimal v) => v.ToString("0.####");
+    string M(decimal v) => v.ToString("0.00");
+}
+
+@* 无 Tab 兜底标题：Tab(iframe) 内由 _Layout 脚本移除，直链打开时显示 *@
+<h2 class="page-title gones-standalone-title d-none mb-3">@(ViewData["Title"])</h2>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">仓库</label>
+                <select name="warehouseId" class="form-select form-select-sm">
+                    <option value="">全部仓库</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.ID" selected="@(ViewBag.WarehouseId != null && (int?)ViewBag.WarehouseId == w.ID)">@w.DEPName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">产品分类</label>
+                <select name="category" class="form-select form-select-sm">
+                    <option value="">全部分类</option>
+                    @foreach (var c in categories)
+                    {
+                        <option value="@c" selected="@(filter["category"] == c)">@c</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" id="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" id="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">关键字</label>
+                <input type="text" class="form-control form-control-sm" name="keyword" value="@filter["keyword"]" placeholder="商品代码/名称/拼音" />
+            </div>
+            <div class="col-auto">
+                <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="today">当天</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="month">本月</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="lastmonth">上月</button>
+                </div>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/StockStat">清空</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">进销存明细</h3>
+        <div class="card-actions text-secondary small text-nowrap">
+            <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="btnExpandAll">全部展开</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="btnCollapseAll">全部折叠</button>
+            @if (!string.IsNullOrEmpty((string)ViewBag.WarehouseName))
+            {
+                <span class="me-2">仓库：@ViewBag.WarehouseName</span>
+            }
+            <span>期间：@(string.IsNullOrEmpty(filter["dateFrom"]) ? "历史起" : filter["dateFrom"]) ~ @(string.IsNullOrEmpty(filter["dateTo"]) ? "今" : filter["dateTo"])</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm text-nowrap">
+            <thead>
+                <tr>
+                    <th>批次</th>
+                    <th>产品名称</th>
+                    <th>规格型号</th>
+                    <th>拼音码</th>
+                    <th>单位</th>
+                    <th>产品分类</th>
+                    <th class="text-end">期初数量</th>
+                    <th class="text-end">结存数量</th>
+                    <th class="text-end" title="Σ t_PMS_BatchNoStock.FBatchNum；与账面结存不一致时红色高亮">批次剩余</th>
+                    <th class="text-end">采购入库</th>
+                    <th class="text-end">采购单价</th>
+                    <th class="text-end">采购入库金额</th>
+                    <th class="text-end">生产退料</th>
+                    <th class="text-end">生产入库</th>
+                    <th class="text-end">生产领料</th>
+                    <th class="text-end">换货入库</th>
+                    <th class="text-end">部门领料</th>
+                    <th class="text-end">部门退料</th>
+                    <th class="text-end">盘点数量</th>
+                    <th class="text-end">产品报损</th>
+                    <th>存放仓库</th>
+                    <th>产品代码</th>
+                    <th>最后出库时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                @{ string lastGroup = "\x01"; }
+                @foreach (var r in Model)
+                {
+                    if (r.Cplb != lastGroup)
+                    {
+                        lastGroup = r.Cplb;
+                        <tr class="table-secondary">
+                            <td colspan="23" class="fw-bold">产品结构: @r.Cplb</td>
+                        </tr>
+                    }
+                    <partial name="_Row" model="r" />
+                }
+                @if (Model.Count == 0)
+                {
+                    <tr><td colspan="23" class="text-center text-secondary py-4">无符合条件的记录</td></tr>
+                }
+            </tbody>
+            @if (summary != null && Model.Count > 0)
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="6" class="text-end">合计</td>
+                        <td class="text-end">@T(summary.Opening)</td>
+                        <td class="text-end">@T(summary.Closing)</td>
+                        <td class="text-end">@T(summary.BatchClosing)</td>
+                        <td class="text-end">@T(summary.PurchaseInQty)</td>
+                        <td class="text-end">-</td>
+                        <td class="text-end">@M(summary.PurchaseInAmount)</td>
+                        <td class="text-end">@T(summary.ProdReturnQty)</td>
+                        <td class="text-end">@T(summary.ProdInQty)</td>
+                        <td class="text-end">@T(summary.ProdPickQty)</td>
+                        <td class="text-end">@T(summary.ExchangeInQty)</td>
+                        <td class="text-end">@T(summary.DeptPickQty)</td>
+                        <td class="text-end">@T(summary.DeptReturnQty)</td>
+                        <td class="text-end">@T(summary.StocktakeQty)</td>
+                        <td class="text-end">@T(summary.LossQty)</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>
+
+@section Scripts {
+    <partial name="_QuickRange" />
+    <script>
+        (function () {
+            function setBatchRows(itemId, show) {
+                document.querySelectorAll('tr.stockstat-batch[data-parent="' + itemId + '"]')
+                    .forEach(function (tr) { tr.classList.toggle('d-none', !show); });
+                var a = document.querySelector('.stockstat-toggle[data-item="' + itemId + '"]');
+                if (a) a.textContent = show ? '▾' : '▸';
+            }
+            document.addEventListener('click', function (e) {
+                var a = e.target.closest ? e.target.closest('.stockstat-toggle') : null;
+                if (!a) return;
+                e.preventDefault();
+                var id = a.getAttribute('data-item');
+                var hidden = a.textContent.trim() === '▸';
+                setBatchRows(id, hidden);
+            });
+            var all = document.getElementById('btnExpandAll');
+            if (all) all.addEventListener('click', function () {
+                document.querySelectorAll('tr.stockstat-item').forEach(function (tr) {
+                    setBatchRows(tr.getAttribute('data-item'), true);
+                });
+            });
+            var none = document.getElementById('btnCollapseAll');
+            if (none) none.addEventListener('click', function () {
+                document.querySelectorAll('tr.stockstat-item').forEach(function (tr) {
+                    setBatchRows(tr.getAttribute('data-item'), false);
+                });
+            });
+        })();
+    </script>
+}
+

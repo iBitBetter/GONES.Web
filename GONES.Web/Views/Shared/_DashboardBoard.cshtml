@@ -1,0 +1,311 @@
+@model GONES.Web.Models.DashboardViewModel
+@{
+    // 独立大屏页(Dashboard/Index)传 true → 看板撑满整页；控制台首页内嵌时不传 → 作为内容区面板
+    var fullPage = (ViewData["DashFullPage"] as bool?) ?? false;
+}
+<style>
+    /* 看板样式全部限定在 .dash-board 内，避免污染系统浅色布局 */
+    .dash-board {
+        --bg1:#0a1733; --bg2:#0a2447; --card:rgba(255,255,255,.06); --line:rgba(120,180,255,.18);
+        --cyan:#22d3ee; --blue:#60a5fa; --green:#4ade80; --orange:#fb923c; --red:#f87171;
+        --text:#e6f0ff; --muted:#9fb3d1;
+        background:radial-gradient(1200px 600px at 20% -10%, #103a6e 0%, transparent 60%), linear-gradient(135deg,var(--bg1),var(--bg2));
+        color:var(--text); font-family:-apple-system,"Microsoft YaHei",Segoe UI,Roboto,sans-serif;
+        border-radius:12px; padding:14px 18px 18px; display:flex; flex-direction:column; gap:14px;
+        /* 无页脚布局：可视区 = 100vh - 顶栏(≈56) - 标签栏(≈40) - 内容区上下内边距(≈32) */
+        min-height:calc(100vh - 140px);
+    }
+    .dash-board *, .dash-board *::before, .dash-board *::after { box-sizing:border-box; }
+    .dash-board.fullpage { min-height:100vh; border-radius:0; }
+    /* 内嵌在系统内容区时，放开 Tabler .container-xl 的限宽，让大屏尽量铺满 */
+    .container-xl.dash-wide { max-width:none; padding-top:.5rem; padding-bottom:.5rem; }
+    /* kiosk：脱离文档流铺满视口，盖住侧边栏/顶栏/标签栏 */
+    .dash-board.kiosk { position:fixed; inset:0; z-index:1075; border-radius:0; min-height:100vh; overflow:auto; }
+    html.gones-kiosk, html.gones-kiosk body { overflow:hidden; }
+
+    .dash-board .topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; border-bottom:1px solid var(--line); padding-bottom:10px; }
+    .dash-board .topbar h1 { font-size:24px; margin:0; letter-spacing:3px; background:linear-gradient(90deg,var(--cyan),var(--blue)); -webkit-background-clip:text; background-clip:text; color:transparent; font-weight:800; }
+    .dash-board .topbar .right { display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:flex-end; }
+    .dash-board .clock { font-size:20px; font-variant-numeric:tabular-nums; color:var(--cyan); font-weight:700; line-height:1.1; }
+    .dash-board .date { color:var(--muted); font-size:12px; }
+    .dash-board .nav a { color:var(--muted); text-decoration:none; font-size:13px; padding:5px 10px; border:1px solid var(--line); border-radius:6px; margin-left:6px; display:inline-block; }
+    .dash-board .nav a:hover { color:var(--text); border-color:var(--cyan); }
+    .dash-board .kiosk-btn { cursor:pointer; font-size:13px; padding:5px 12px; border-radius:6px; border:1px solid var(--cyan); background:rgba(34,211,238,.12); color:var(--cyan); font-weight:600; }
+    .dash-board .kiosk-btn:hover { background:rgba(34,211,238,.25); }
+    .dash-board .kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:12px; }
+    .dash-board .kpi { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; position:relative; overflow:hidden; }
+    .dash-board .kpi::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--cyan); }
+    .dash-board .kpi.b::before { background:var(--blue); } .dash-board .kpi.g::before { background:var(--green); } .dash-board .kpi.o::before { background:var(--orange); } .dash-board .kpi.r::before { background:var(--red); }
+    .dash-board .kpi .label { color:var(--muted); font-size:13px; }
+    .dash-board .kpi .val { font-size:28px; font-weight:800; margin-top:6px; line-height:1; font-variant-numeric:tabular-nums; }
+    .dash-board .kpi .sub { color:var(--muted); font-size:12px; margin-top:6px; }
+    .dash-board .row2 { display:grid; grid-template-columns:1.4fr 1fr 1fr; gap:12px; }
+    .dash-board .panel { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+    .dash-board .panel h3 { margin:0 0 8px; font-size:15px; color:var(--text); font-weight:700; display:flex; align-items:center; gap:8px; }
+    .dash-board .panel h3::before { content:""; width:8px; height:8px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); }
+    .dash-board .panel h3 small { color:var(--muted); font-weight:400; font-size:12px; margin-left:6px; }
+    .dash-board .chart { width:100%; height:260px; }
+    .dash-board .row3 { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+    .dash-board table { width:100%; border-collapse:collapse; font-size:13px; }
+    .dash-board th, .dash-board td { padding:7px 8px; text-align:left; border-bottom:1px solid rgba(255,255,255,.06); }
+    .dash-board th { color:var(--muted); font-weight:600; }
+    .dash-board td.num, .dash-board th.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .dash-board .tag { padding:1px 8px; border-radius:10px; font-size:12px; }
+    .dash-board .tag.draft { background:rgba(159,179,209,.2); color:var(--muted); }
+    .dash-board .tag.run { background:rgba(96,165,250,.2); color:var(--blue); }
+    .dash-board .tag.done { background:rgba(74,222,128,.2); color:var(--green); }
+    .dash-board .tag.pick { background:rgba(251,146,60,.2); color:var(--orange); }
+    .dash-board .tag.wait { background:rgba(248,113,113,.2); color:var(--red); }
+    .dash-board .empty { color:var(--muted); text-align:center; padding:18px; }
+    .dash-board tr.alert-crit { background:rgba(248,113,113,.14); }
+    .dash-board tr.alert-crit td { color:#ffd5d5; font-weight:600; }
+    .dash-board tr.alert-low { background:rgba(251,146,60,.12); }
+    .dash-board tr.alert-low td { color:#ffe2c2; }
+    .dash-board .lvl { padding:1px 8px; border-radius:10px; font-size:12px; }
+    .dash-board .lvl.crit { background:rgba(248,113,113,.3); color:var(--red); }
+    .dash-board .lvl.low { background:rgba(251,146,60,.3); color:var(--orange); }
+    .dash-board .lvl.ok { color:var(--muted); }
+    .dash-board .foot { color:var(--muted); font-size:12px; text-align:center; }
+    @@media (max-width:1280px){
+        .dash-board .kpis { grid-template-columns:repeat(3,1fr); }
+        .dash-board .row2, .dash-board .row3 { grid-template-columns:1fr; }
+    }
+</style>
+
+<div class="dash-board @(fullPage ? "fullpage" : "")" id="dashBoard">
+    <div class="topbar">
+        <h1>生产 MES 数据看板</h1>
+        <div class="right">
+            <div class="nav">
+                <a href="/PmsProduceOrder" class="gones-tab-link">生产单</a>
+                <a href="/ProductIn" class="gones-tab-link">生产入库</a>
+                <a href="/ProductInOutCount" class="gones-tab-link">入出库</a>
+                <a href="/StockStat" class="gones-tab-link">库存统计</a>
+                <a href="/GoodsApply" class="gones-tab-link">要货</a>
+            </div>
+            <button type="button" class="kiosk-btn" id="btnKiosk" title="切换全屏(kiosk)模式">⛶ 全屏</button>
+            <div>
+                <div class="clock" id="dashClock">--:--:--</div>
+                <div class="date" id="dashDate">----</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPI 卡片 -->
+    <div class="kpis">
+        <div class="kpi b"><div class="label">生产订单(总)</div><div class="val" id="kpiPoTotal">@Model.PoTotal</div><div class="sub">本月新增 <span id="kpiPoThisMonth">@Model.PoThisMonth</span></div></div>
+        <div class="kpi"><div class="label">进行中</div><div class="val" id="kpiPoInProgress">@Model.PoInProgress</div><div class="sub">已完成 <span id="kpiPoCompleted">@Model.PoCompleted</span> · 草稿 <span id="kpiPoDraft">@Model.PoDraft</span></div></div>
+        <div class="kpi g"><div class="label">今日生产入库量</div><div class="val" id="kpiTodayOutput">@Model.TodayOutput</div><div class="sub">单位：件/批</div></div>
+        <div class="kpi o"><div class="label">库存(种类/总量)</div><div class="val"><span id="kpiStockKinds">@Model.StockKinds</span></div><div class="sub">总量 <span id="kpiStockTotalQty">@Model.StockTotalQty</span></div></div>
+        <div class="kpi r"><div class="label">待处理要货</div><div class="val" id="kpiPendingApply">@Model.PendingApply</div><div class="sub">未审核单据</div></div>
+        <div class="kpi r"><div class="label">本月报损</div><div class="val" id="kpiMonthLossQty">@Model.MonthLossQty</div><div class="sub">金额 <span id="kpiMonthLossAmount">@Model.MonthLossAmount</span></div></div>
+    </div>
+
+    <!-- 图表 -->
+    <div class="row2">
+        <div class="panel"><h3>近 30 天出入库趋势</h3><div id="chartTrend" class="chart"></div></div>
+        <div class="panel"><h3>近 30 天各车间/部门入库量<small>全部入库类型</small></h3><div id="chartWs" class="chart"></div></div>
+        <div class="panel"><h3>库存按仓库构成</h3><div id="chartWh" class="chart"></div></div>
+    </div>
+
+    <!-- 列表 -->
+    <div class="row3">
+        <div class="panel"><h3>最新生产订单</h3>
+            <table><thead><tr><th>单号</th><th>日期</th><th>车间</th><th>状态</th><th class="num">计划量</th></tr></thead>
+            <tbody id="tbodyOrders">
+                @foreach (var o in Model.RecentOrders)
+                {
+                    <tr><td>@o.FBillNo</td><td>@(o.FDate?.ToString("yyyy-MM-dd"))</td><td>@o.WorkshopName</td><td>@StatusTag(o.StatusLabel)</td><td class="num">@o.PlanQty</td></tr>
+                }
+                @if (Model.RecentOrders.Count == 0) { <tr><td colspan="5" class="empty">暂无生产订单</td></tr> }
+            </tbody></table>
+        </div>
+        <div class="panel"><h3>库存预警(最低)<small>阈值 @Model.LowStockThreshold 偏低 · 0 缺货</small></h3>
+            <table><thead><tr><th>商品</th><th>仓库</th><th class="num">库存量</th><th>级别</th></tr></thead>
+            <tbody id="tbodyAlerts">
+                @foreach (var s in Model.StockAlerts)
+                {
+                    <tr class="@(s.AlertLevel == "缺货" ? "alert-crit" : s.AlertLevel == "偏低" ? "alert-low" : "")">
+                        <td>@s.ItemName</td><td>@s.WarehouseName</td>
+                        <td class="num">@s.StockNum</td>
+                        <td>@AlertBadge(s.AlertLevel)</td>
+                    </tr>
+                }
+                @if (Model.StockAlerts.Count == 0) { <tr><td colspan="4" class="empty">暂无数据</td></tr> }
+            </tbody></table>
+        </div>
+        <div class="panel"><h3>待处理要货</h3>
+            <table><thead><tr><th>单号</th><th>日期</th><th>车间/部门</th><th>状态</th></tr></thead>
+            <tbody id="tbodyApplies">
+                @foreach (var a in Model.PendingApplies)
+                {
+                    <tr><td>@a.FBillNo</td><td>@(a.FDate?.ToString("yyyy-MM-dd"))</td><td>@a.DeptName</td><td>@StatusTag(a.StatusLabel)</td></tr>
+                }
+                @if (Model.PendingApplies.Count == 0) { <tr><td colspan="4" class="empty">无待处理要货</td></tr> }
+            </tbody></table>
+        </div>
+    </div>
+
+    <div class="foot">数据每 30 秒自动刷新 · 生产 MES 数据看板</div>
+</div>
+
+@functions {
+    static Microsoft.AspNetCore.Html.IHtmlContent StatusTag(string label)
+    {
+        var cls = label switch { "草稿" => "draft", "进行中" => "run", "已领料" => "pick", "已完成" => "done", "待审核" => "wait", _ => "draft" };
+        return new Microsoft.AspNetCore.Html.HtmlString($"<span class=\"tag {cls}\">{label}</span>");
+    }
+    static Microsoft.AspNetCore.Html.IHtmlContent AlertBadge(string lvl)
+    {
+        if (lvl == "缺货") return new Microsoft.AspNetCore.Html.HtmlString("<span class=\"lvl crit\">缺货</span>");
+        if (lvl == "偏低") return new Microsoft.AspNetCore.Html.HtmlString("<span class=\"lvl low\">偏低</span>");
+        return new Microsoft.AspNetCore.Html.HtmlString("<span class=\"lvl ok\">正常</span>");
+    }
+}
+
+<script src="/vendor/echarts/echarts.min.js"></script>
+<script>
+    (function () {
+        const board = document.getElementById('dashBoard');
+        if (!board) return;
+
+        // 内嵌在系统布局内容区时，放开外层 .container-xl 限宽（大屏需要横向铺满）
+        var wrap = board.closest('.container-xl');
+        if (wrap) wrap.classList.add('dash-wide');
+
+        const DASH = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model).Replace("</", "<\\/"));
+        const fmt = n => (n == null ? '0' : Number(n).toLocaleString('zh-CN'));
+        const baseText = { color: '#e6f0ff' };
+        const axisLine = { lineStyle: { color: 'rgba(120,180,255,.3)' } };
+
+        // 时钟
+        function tick() {
+            const d = new Date();
+            const p = x => String(x).padStart(2, '0');
+            const c = document.getElementById('dashClock');
+            const dt = document.getElementById('dashDate');
+            if (c) c.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+            if (dt) dt.textContent = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} 星期${['日','一','二','三','四','五','六'][d.getDay()]}`;
+        }
+        tick(); setInterval(tick, 1000);
+
+        // 图表
+        const cTrend = echarts.init(document.getElementById('chartTrend'));
+        const cWs = echarts.init(document.getElementById('chartWs'));
+        const cWh = echarts.init(document.getElementById('chartWh'));
+
+        function renderTrend(d) {
+            cTrend.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'axis' },
+                legend: { data: ['入库', '出库'], textStyle: baseText, top: 0 },
+                grid: { left: 50, right: 16, top: 34, bottom: 28 },
+                xAxis: { type: 'category', data: d.TrendDates, axisLine, axisLabel: baseText },
+                yAxis: { type: 'value', axisLine, axisLabel: baseText, splitLine: { lineStyle: { color: 'rgba(120,180,255,.08)' } } },
+                series: [
+                    { name: '入库', type: 'line', smooth: true, areaStyle: { opacity: .15 }, itemStyle: { color: '#4ade80' }, data: d.TrendIn },
+                    { name: '出库', type: 'line', smooth: true, areaStyle: { opacity: .15 }, itemStyle: { color: '#fb923c' }, data: d.TrendOut }
+                ]
+            });
+        }
+        function renderWs(d) {
+            cWs.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'axis' },
+                grid: { left: 50, right: 16, top: 16, bottom: 60 },
+                xAxis: { type: 'category', data: d.WorkshopOutput.map(x => x.name), axisLine, axisLabel: { ...baseText, rotate: 30 } },
+                yAxis: { type: 'value', axisLine, axisLabel: baseText, splitLine: { lineStyle: { color: 'rgba(120,180,255,.08)' } } },
+                series: [{ type: 'bar', data: d.WorkshopOutput.map(x => x.value), itemStyle: { color: '#60a5fa', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 26 }]
+            });
+        }
+        function renderWh(d) {
+            cWh.setOption({
+                backgroundColor: 'transparent',
+                tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+                legend: { type: 'scroll', orient: 'vertical', right: 4, top: 10, textStyle: baseText },
+                series: [{ type: 'pie', radius: ['38%', '66%'], center: ['38%', '52%'], data: d.StockByWh, label: { color: '#e6f0ff' }, itemStyle: { borderColor: '#0a2447', borderWidth: 2 } }]
+            });
+        }
+        function resizeCharts() { cTrend.resize(); cWs.resize(); cWh.resize(); }
+        renderTrend(DASH); renderWs(DASH); renderWh(DASH);
+
+        function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+        // HTML-escape before innerHTML interpolation: the board refreshes from /Dashboard/Data
+        // every 30s and the payloads carry item/warehouse/department names that maintainers
+        // can freely edit -- an unescaped `<img onerror=...>` in a name would run on every
+        // logged-in user's home page.
+        function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function tag(label) {
+            const m = { '草稿': 'draft', '进行中': 'run', '已领料': 'pick', '已完成': 'done', '待审核': 'wait' };
+            return `<span class="tag ${m[label] || 'draft'}">${esc(label)}</span>`;
+        }
+        function renderOrders(rows) {
+            const tb = document.getElementById('tbodyOrders');
+            if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">暂无生产订单</td></tr>'; return; }
+            tb.innerHTML = rows.map(o => `<tr><td>${esc(o.FBillNo)}</td><td>${o.FDate ? o.FDate.slice(0, 10) : ''}</td><td>${esc(o.WorkshopName ?? '—')}</td><td>${tag(o.StatusLabel)}</td><td class="num">${fmt(o.PlanQty)}</td></tr>`).join('');
+        }
+        function renderAlerts(rows) {
+            const tb = document.getElementById('tbodyAlerts');
+            if (!rows.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">暂无数据</td></tr>'; return; }
+            tb.innerHTML = rows.map(s => {
+                const lvl = s.AlertLevel || '';
+                const cls = lvl === '缺货' ? 'alert-crit' : lvl === '偏低' ? 'alert-low' : '';
+                const badge = lvl === '缺货' ? '<span class="lvl crit">缺货</span>' : lvl === '偏低' ? '<span class="lvl low">偏低</span>' : '<span class="lvl ok">正常</span>';
+                return `<tr class="${cls}"><td>${esc(s.ItemName)}</td><td>${esc(s.WarehouseName ?? '—')}</td><td class="num">${fmt(s.StockNum)}</td><td>${badge}</td></tr>`;
+            }).join('');
+        }
+        function renderApplies(rows) {
+            const tb = document.getElementById('tbodyApplies');
+            if (!rows.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">无待处理要货</td></tr>'; return; }
+            tb.innerHTML = rows.map(a => `<tr><td>${esc(a.FBillNo)}</td><td>${a.FDate ? a.FDate.slice(0, 10) : ''}</td><td>${esc(a.DeptName ?? '—')}</td><td>${tag(a.StatusLabel)}</td></tr>`).join('');
+        }
+        function applyData(d) {
+            setText('kpiPoTotal', d.PoTotal); setText('kpiPoThisMonth', d.PoThisMonth);
+            setText('kpiPoInProgress', d.PoInProgress); setText('kpiPoCompleted', d.PoCompleted); setText('kpiPoDraft', d.PoDraft);
+            setText('kpiTodayOutput', fmt(d.TodayOutput));
+            setText('kpiStockKinds', d.StockKinds); setText('kpiStockTotalQty', fmt(d.StockTotalQty));
+            setText('kpiPendingApply', d.PendingApply);
+            setText('kpiMonthLossQty', fmt(d.MonthLossQty)); setText('kpiMonthLossAmount', fmt(d.MonthLossAmount));
+            renderTrend(d); renderWs(d); renderWh(d);
+            renderOrders(d.RecentOrders); renderAlerts(d.StockAlerts); renderApplies(d.PendingApplies);
+        }
+
+        // 30s 自动刷新
+        let fail = 0;
+        setInterval(function () {
+            fetch('/Dashboard/Data', { cache: 'no-store' }).then(r => r.json()).then(d => { fail = 0; applyData(d); })
+                .catch(() => { fail++; if (fail >= 3) console.warn('看板数据刷新失败'); });
+        }, 30000);
+
+        // ===== 全屏(kiosk) 切换 =====
+        const btn = document.getElementById('btnKiosk');
+        function syncLabel() {
+            const on = board.classList.contains('kiosk');
+            if (btn) btn.innerHTML = on ? '⛶ 退出全屏' : '⛶ 全屏';
+        }
+        function setKiosk(on) {
+            board.classList.toggle('kiosk', on);
+            document.documentElement.classList.toggle('gones-kiosk', on);
+            setTimeout(resizeCharts, 150);
+            syncLabel();
+        }
+        if (btn) {
+            btn.addEventListener('click', function () {
+                const on = !board.classList.contains('kiosk');
+                setKiosk(on);
+                try {
+                    if (on) { if (!document.fullscreenElement && board.requestFullscreen) board.requestFullscreen(); }
+                    else { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); }
+                } catch (e) { /* 全屏 API 不可用时仍以 CSS kiosk 铺满 */ }
+            });
+        }
+        // 用户按 Esc / 浏览器退出全屏 → 同步还原 CSS kiosk
+        document.addEventListener('fullscreenchange', function () {
+            if (!document.fullscreenElement && board.classList.contains('kiosk')) setKiosk(false);
+            resizeCharts();
+        });
+        syncLabel();
+
+        window.addEventListener('resize', resizeCharts);
+    })();
+</script>

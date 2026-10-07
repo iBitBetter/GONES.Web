@@ -1,0 +1,39 @@
+# ===== .NET 构建产物 =====
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+
+# ===== 运行时日志 =====
+*.log
+logs/
+**/logs/
+
+# ===== EF 迁移（本项目用手写 SQL，不使用 EF 迁移）=====
+**/Migrations/
+
+# ===== 本地配置 / 连接串（含口令，禁止入库）=====
+# 真实配置：appsettings.json / appsettings.*.json 一律忽略
+appsettings.json
+appsettings.*.json
+# 仅保留脱敏模板
+!appsettings.example.json
+
+# ===== 含口令哈希的种子数据（不公开）=====
+**/seed.sql
+
+# ===== IDE / 编辑器 =====
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# ===== 操作系统 / 杂项 =====
+.DS_Store
+Thumbs.db
+
+# ===== NuGet / 发布产物 =====
+*.nupkg
+.nuget/
+publish/

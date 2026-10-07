@@ -1,0 +1,86 @@
+@model GONES.Web.Models.SysMenuEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "系统菜单编辑" : "新建系统菜单";
+    var roots = (System.Collections.Generic.List<t_ERP_Menu>)ViewBag.Roots;
+    bool isEdit = Model.ID > 0;
+}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <form class="card" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? (int?)Model.ID : null)" method="post" autocomplete="off">
+            @if (isEdit)
+            {
+                <input type="hidden" asp-for="ID" />
+            }
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="ParentID">主菜单</label>
+                    <select asp-for="ParentID" class="form-select">
+                        <option value="0">系统主菜单（顶层）</option>
+                        @foreach (var r in roots)
+                        {
+                            if (r.ID == Model.ID) { continue; }
+                            <option value="@r.ID">@r.MenuName</option>
+                        }
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="MenuName">菜单名称</label>
+                    <input asp-for="MenuName" class="form-control" placeholder="请输入菜单名称" />
+                </div>
+                <div class="row">
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-label" asp-for="MenuType">窗体类型</label>
+                        <select asp-for="MenuType" class="form-select">
+                            <option value="0">分组菜单</option>
+                            <option value="1">MODU（功能菜单）</option>
+                        </select>
+                    </div>
+                    <div class="col-sm-6 mb-3">
+                        <label class="form-label" asp-for="OpenType">打开方式</label>
+                        <select asp-for="OpenType" class="form-select">
+                            <option value="0">普通窗口</option>
+                            <option value="1">模态窗口</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input asp-for="Flag" class="form-check-input" type="checkbox" />
+                        <span class="form-check-label">启用</span>
+                    </label>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="Memo">备注</label>
+                    <textarea asp-for="Memo" rows="4" class="form-control" placeholder="选填"></textarea>
+                </div>
+
+                @* 遗留元数据：仅供旧 WinForms 反射加载使用，Web 端不做校验、可不填。
+                   迁移期保留输入便于追溯"此菜单对应哪个旧窗体"（WebRoutes 映射的键）。 *@
+                <details class="mb-0">
+                    <summary class="text-secondary" style="cursor:pointer;">
+                        遗留元数据（旧 WinForms 程序集/类名，可不填）
+                    </summary>
+                    <div class="row mt-3">
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" asp-for="ClassName">启动类名</label>
+                            <input asp-for="ClassName" class="form-control" placeholder="如 SysManager.FrmLogistics" />
+                        </div>
+                        <div class="col-sm-6 mb-3">
+                            <label class="form-label" asp-for="DllName">程序集名称</label>
+                            <input asp-for="DllName" class="form-control" placeholder="如 ZS" />
+                        </div>
+                    </div>
+                </details>
+
+                <div asp-validation-summary="All" class="text-danger"></div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-list justify-content-end">
+                    <a class="btn" href="/SysMenu?pid=@Model.ParentID">关闭(C)</a>
+                    <button type="submit" class="btn btn-primary">保存(S)</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

@@ -1,0 +1,62 @@
+@model GONES.Web.Models.DataDictEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "编辑码表项" : "新增码表项";
+    var parentOptions = (System.Collections.Generic.List<GONES.Web.Models.SelectOption>)ViewBag.ParentOptions;
+    var isEdit = Model.ID > 0;
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/DataDict">返回列表</a>
+        </div>
+    </div>
+</div>
+
+<div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <form asp-action="@(isEdit ? "Edit" : "Create")" asp-route-id="@(isEdit ? Model.ID : (int?)null)" method="post" class="card">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="ID" />
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label" asp-for="DictNo"></label>
+                    <input class="form-control" asp-for="DictNo" />
+                    <span asp-validation-for="DictNo" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="DictName"></label>
+                    <input class="form-control" asp-for="DictName" />
+                    <span asp-validation-for="DictName" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="ParentId"></label>
+                    <select class="form-select" asp-for="ParentId">
+                        <option value="0">-- 作为顶级分类 --</option>
+                        @foreach (var opt in parentOptions)
+                        {
+                            <option value="@opt.Id">@opt.Text</option>
+                        }
+                    </select>
+                    <div class="form-hint">选「作为顶级分类」表示新增一个分类；选具体分类表示在其下新增一个编码项（子项按分类「编码」关联归属）。</div>
+                    <span asp-validation-for="ParentId" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" asp-for="Remark"></label>
+                    <textarea class="form-control" asp-for="Remark" rows="3"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" asp-for="IsShow" />
+                        <span class="form-check-label" asp-for="IsShow"></span>
+                    </label>
+                    <div class="form-hint">不勾选则业务模块的下拉列表中不显示该项。</div>
+                </div>
+            </div>
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>

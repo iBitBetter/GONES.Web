@@ -1,0 +1,213 @@
+@using GONES.Web.Models
+@model List<WarehousePickListRow>
+@{
+    ViewBag.Title = "仓库领料单维护";
+    var billCount = Model.Select(r => r.InterId).Distinct().Count();
+    var hasRows = Model.Count > 0;
+    var filter = (Dictionary<string, string>)ViewBag.Filter;
+    var totalQty = (decimal)ViewBag.TotalQty;
+    decimal pageQty = Model.Sum(r => r.Qty ?? 0m);
+    // 与服务端 W1 硬拦（DepotScope.BillFullyInScope）同源的提示语。
+    var outOfScopeTitle = "该单据包含不属于您管理仓库的明细，禁止操作";
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto d-print-none">
+            <a class="btn btn-primary" href="/WarehousePick/Create">新增仓库领料单</a>
+            <a class="btn btn-outline-primary" href="/WarehousePick/ImportList">从领料申请单导入</a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="card mb-3">
+    <div class="card-body py-3">
+        <form method="get" class="row g-3 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-2">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" id="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" id="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据编号</label>
+                <input type="text" class="form-control form-control-sm" name="billNo" value="@filter["billNo"]" placeholder="模糊匹配" />
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">审核</label>
+                <select class="form-select form-select-sm" name="state">
+                    <option value="-1" selected="@(filter["state"] == "-1")">全部</option>
+                    <option value="1" selected="@(filter["state"] == "1")">已审核</option>
+                    <option value="0" selected="@(filter["state"] == "0")">未审核</option>
+                </select>
+            </div>
+            <div class="col-auto ms-auto">
+                <div class="d-flex align-items-end gap-2">
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="today">当天</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="month">本月</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary quick-range" data-range="lastmonth">上月</button>
+                    </div>
+                    <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                    <a class="btn btn-sm btn-outline-secondary" href="/WarehousePick">清空</a>
+                    <a class="btn btn-sm btn-outline-success" href="/WarehousePick/Export?dateFrom=@filter["dateFrom"]&dateTo=@filter["dateTo"]&billNo=@System.Net.WebUtility.UrlEncode(filter["billNo"])&state=@filter["state"]">导出Excel</a>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">仓库领料单列表</h3>
+        <div class="card-actions">
+            <span class="badge bg-azure-lt">本页 @billCount 单 / @Model.Count 行</span>
+        </div>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table table-sm">
+            <thead>
+                <tr>
+                    <th class="w-1">审核</th>
+                    <th>单据日期</th>
+                    <th>单据编号</th>
+                    <th>来源领料申请单</th>
+                    <th>批号</th>
+                    <th>产品代码</th>
+                    <th>分类</th>
+                    <th>产品名称</th>
+                    <th>规格</th>
+                    <th>单位</th>
+                    <th class="text-end">出库数量</th>
+                    <th class="w-1">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (!hasRows)
+                {
+                    <tr><td colspan="13" class="text-center text-secondary py-4">暂无符合条件的仓库领料单。</td></tr>
+                }
+                @{
+                    var prevInterId = -1;
+                }
+                @foreach (var r in Model)
+                {
+                    var newBill = r.InterId != prevInterId;
+                    prevInterId = r.InterId;
+                    <tr class="@(newBill ? "border-top-2" : "")">
+                        <td class="text-center">
+                            @if (r.FirstOfBill)
+                            {
+                                @if (r.State)
+                                {
+                                    <span class="badge bg-green-lt">已审</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-secondary-lt">未审</span>
+                                }
+                            }
+                        </td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.Date?.ToString("yyyy-MM-dd") : "")</td>
+                        <td>@(r.FirstOfBill ? r.BillNo : "")</td>
+                        <td class="text-secondary">@(r.FirstOfBill ? r.FromBillUseNo : "")</td>
+                        <td class="text-secondary text-nowrap">@r.BatchNo</td>
+                        <td>@r.Cpbm</td>
+                        <td class="text-secondary">@r.Cplb</td>
+                        <td>@r.Cpjc</td>
+                        <td class="text-secondary">@r.Cpgg</td>
+                        <td class="text-secondary">@r.UnitName</td>
+                        <td class="text-end">@string.Format("{0:0.00}", r.Qty ?? 0m)</td>
+                        <td class="text-nowrap">
+                            @if (r.FirstOfBill && !r.State)
+                            {
+                                if (r.CanModify)
+                                {
+                                    <a class="btn btn-sm btn-outline-secondary" href="/WarehousePick/Edit/@r.InterId">修改</a>
+                                    <form method="post" action="/WarehousePick/Audit/@r.InterId" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-success"
+                                                data-confirm data-confirm-title="审核确认"
+                                                data-confirm-message="确认审核单据 [@r.BillNo] 吗？审核后将按批号扣减库存。"
+                                                data-confirm-yes="审核">审核</button>
+                                    </form>
+                                    <form method="post" action="/WarehousePick/Delete/@r.InterId" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                data-confirm data-confirm-title="删除确认"
+                                                data-confirm-message="确认删除单据 [@r.BillNo] 吗？此操作不可恢复！"
+                                                data-confirm-yes="删除">删除</button>
+                                    </form>
+                                }
+                                else
+                                {
+                                    @* W1：明细未全部属于本仓库 ⇒ 只给查看（读可以少看，动必须整套归你）。 *@
+                                    <a class="btn btn-sm btn-outline-info" href="/WarehousePick/Details/@r.InterId">查看</a>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="@outOfScopeTitle">修改</button>
+                                    <button type="button" class="btn btn-sm btn-outline-success" disabled title="@outOfScopeTitle">审核</button>
+                                    <button type="button" class="btn btn-sm btn-outline-danger" disabled title="@outOfScopeTitle">删除</button>
+                                }
+                            }
+                            else if (r.FirstOfBill && r.State)
+                            {
+                                <a class="btn btn-sm btn-outline-info" href="/WarehousePick/Details/@r.InterId">查看</a>
+                                @if (r.CanUnAudit && r.CanModify)
+                                {
+                                    <form method="post" action="/WarehousePick/UnAudit/@r.InterId" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <button type="submit" class="btn btn-sm btn-outline-warning"
+                                                data-confirm data-confirm-title="反审核确认"
+                                                data-confirm-message="确认反审核单据 [@r.BillNo] 吗？反审核将恢复库存与领料申请单已发量。"
+                                                data-confirm-yes="反审核" data-confirm-yes-class="btn-primary">反审核</button>
+                                    </form>
+                                }
+                                else if (!r.CanModify)
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-warning" disabled title="@outOfScopeTitle">反审核</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-warning" disabled
+                                            title="该领料单已被已审核的生产入库单或仓库退料单引用，禁止反审核">反审核</button>
+                                }
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+            @if (hasRows)
+            {
+                <tfoot>
+                    <tr class="fw-bold">
+                        <td colspan="11" class="text-end">本页合计：</td>
+                        <td class="text-end">@string.Format("{0:0.00}", pageQty)</td>
+                        <td></td>
+                    </tr>
+                    <tr class="fw-bold text-danger">
+                        <td colspan="11" class="text-end">全部合计：</td>
+                        <td class="text-end">@string.Format("{0:0.00}", totalQty)</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            }
+        </table>
+    </div>
+    @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+</div>
+
+@section Scripts {
+    <partial name="_QuickRange" />
+}
+
+@* 本页筛选区已接入共享 _QuickRange 快捷区间（当天/本月/上月），点击即回填单据日期并提交。 *@

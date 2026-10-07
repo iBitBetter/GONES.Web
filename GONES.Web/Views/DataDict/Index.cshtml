@@ -1,0 +1,198 @@
+@using GONES.Model.Pg
+@{
+    ViewBag.Title = "码表管理";
+    var categories = (List<t_ERP_DataDict>)ViewBag.Categories;
+    var counts = (Dictionary<int, int>)ViewBag.Counts;
+    var selected = (t_ERP_DataDict)ViewBag.Selected;
+    var items = (List<t_ERP_DataDict>)ViewBag.Items;
+    var orphanCount = (int)ViewBag.OrphanCount;
+    var isOrphanView = selected == null;
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-primary" href="/DataDict/Create">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                    <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                </svg>
+                新增分类
+            </a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="row">
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">码表分类</h3>
+                <div class="card-actions">
+                    <span class="badge bg-azure-lt">@categories.Count 个</span>
+                </div>
+            </div>
+            <div class="card-body p-2">
+                <input id="catSearch" class="form-control form-control-sm mb-2" placeholder="搜索分类…" autocomplete="off" />
+            </div>
+            <div class="list-group list-group-flush" id="catList" style="max-height: 60vh; overflow-y: auto;">
+                @foreach (var c in categories)
+                {
+                    int catNo;
+                    var hasNo = int.TryParse(c.DictNo, out catNo);
+                    var cnt = (hasNo && counts.ContainsKey(catNo)) ? counts[catNo] : 0;
+                    var active = (!isOrphanView && selected != null && c.ID == selected.ID) ? " active" : "";
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center @active"
+                       href="/DataDict?catId=@c.ID" data-name="@c.DictName">
+                        <span class="text-truncate" style="max-width: 70%;">@c.DictName</span>
+                        <span class="badge bg-azure-lt ms-1">@cnt</span>
+                    </a>
+                }
+                @if (orphanCount > 0)
+                {
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center @(isOrphanView ? "active" : "")"
+                       href="/DataDict?catId=-1">
+                        <span class="text-danger">未归属编码项</span>
+                        <span class="badge bg-red-lt ms-1">@orphanCount</span>
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <h3 class="card-title">
+                        @if (isOrphanView)
+                        {
+                            <span class="text-danger">未归属编码项</span>
+                        }
+                        else if (selected != null)
+                        {
+                            <span>@selected.DictName</span>
+                            <span class="text-secondary ms-2">分类编码 @selected.DictNo</span>
+                        }
+                        else
+                        {
+                            <span>暂无分类</span>
+                        }
+                    </h3>
+                    <div class="text-secondary">
+                        @if (isOrphanView)
+                        {
+                            <span>这些编码项的 FParentID 对不上任何分类编码，属于脏数据，建议移到正确分类下。</span>
+                        }
+                        else if (selected != null)
+                        {
+                            <span>子项通过 FParentID 关联本分类的编码（@selected.DictNo）挂载。</span>
+                        }
+                    </div>
+                </div>
+                @if (!isOrphanView && selected != null)
+                {
+                    <div class="card-actions btn-list">
+                        <a class="btn btn-primary btn-sm" href="/DataDict/Create?parentNo=@selected.DictNo">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                                <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                            </svg>
+                            加编码项
+                        </a>
+                        <a class="btn btn-outline-secondary btn-sm" href="/DataDict/Edit/@selected.ID">修改分类</a>
+                        <form asp-action="Delete" asp-route-id="@selected.ID" method="post" class="d-inline"
+                              data-confirm=""
+                              data-confirm-title="删除分类"
+                              data-confirm-message="确定删除分类“@selected.DictName”吗？（其下还有编码项时会被拒绝）"
+                              data-confirm-yes="确定删除"
+                              data-confirm-yes-class="btn-danger">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">删除分类</button>
+                        </form>
+                    </div>
+                }
+            </div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table table-hover">
+                    <thead>
+                        <tr>
+                            <th style="width: 12%;">编码</th>
+                            <th>名称</th>
+                            <th style="width: 10%;">状态</th>
+                            <th style="width: 26%;">备注</th>
+                            <th class="w-1">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (items.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center text-secondary py-4">
+                                    @(isOrphanView ? "没有未归属的编码项，数据很干净。" : "该分类下还没有编码项，点右上角「加编码项」新增。")
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            foreach (var it in items)
+                            {
+                                <tr>
+                                    <td class="text-secondary">@it.DictNo</td>
+                                    <td>@it.DictName</td>
+                                    <td>
+                                        @if (it.IsShow ?? true)
+                                        {
+                                            <span class="badge bg-green-lt">显示</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary-lt">隐藏</span>
+                                        }
+                                    </td>
+                                    <td class="text-secondary">@it.Remark</td>
+                                    <td>
+                                        <div class="btn-list flex-nowrap">
+                                            <a class="btn btn-sm btn-outline-secondary py-0" href="/DataDict/Edit/@it.ID">修改</a>
+                                            <form asp-action="Delete" asp-route-id="@it.ID" method="post" class="d-inline"
+                                                  data-confirm=""
+                                                  data-confirm-title="删除编码项"
+                                                  data-confirm-message="确定删除“@it.DictName”吗？"
+                                                  data-confirm-yes="确定删除"
+                                                  data-confirm-yes-class="btn-danger">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger py-0">删除</button>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer text-secondary">
+                共 @items.Count 个编码项
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('catSearch').addEventListener('input', function () {
+            var kw = this.value.trim().toLowerCase();
+            var links = document.querySelectorAll('#catList a');
+            for (var i = 0; i < links.length; i++) {
+                var name = (links[i].getAttribute('data-name') || links[i].textContent || '').toLowerCase();
+                links[i].style.display = (!kw || name.indexOf(kw) >= 0) ? '' : 'none';
+            }
+        });
+    </script>
+}

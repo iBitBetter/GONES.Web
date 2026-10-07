@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewBag.Title · GONES Web</title>
+    <link href="~/vendor/tabler/css/tabler.min.css" rel="stylesheet" />
+    <style>
+        :root { --tblr-primary: #185fa5; }
+    </style>
+</head>
+<body class="d-flex flex-column">
+    <div class="page page-center">
+        <div class="container container-tight py-4">
+            @RenderBody()
+        </div>
+    </div>
+    <p class="text-center text-secondary">
+        GONES Web · @DateTime.Now.Year
+    </p>
+    <!-- tabler.min.js 移除：与 bootstrap.bundle 冲突（见 _Layout）；登录页无交互组件，无需 JS -->
+</body>
+</html>

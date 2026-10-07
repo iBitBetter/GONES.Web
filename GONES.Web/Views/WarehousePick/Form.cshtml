@@ -1,0 +1,729 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model WarehousePickEditViewModel
+@{
+    ViewBag.Title = "仓库领料单维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var groupOptions = (List<t_ERP_Department>)ViewBag.GroupOptions;
+    var createrName = (string)ViewBag.CreaterName;
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+    var importNotice = ViewBag.ImportNotice as string;   // partial-import warning (bottleneck rows)
+    var rows = Model.Rows ?? new List<WarehousePickRowInput>();
+
+    // Single source of truth for row field names. Must match WarehousePickRowInput properties
+    // and the addRow template below; reindex() uses this list to renumber after add/delete.
+    var rowFields = new[] {
+        "ItemId","BomId","StepId","ProduceId","ProduceNo","StepName","ProductName","Spec",
+        "CategoryName","Unit","BatchStock","UseNum","OutNum","BatchNo","WarehouseName","Note",
+        "BillUseEntryId","BillUseNo"
+    };
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看仓库领料单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/WarehousePick">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+@if (!string.IsNullOrEmpty(importNotice))
+{
+    <div class="alert alert-warning mb-3">@importNotice</div>
+}
+
+<form method="post" action="@(readOnly ? "" : (isNew ? "/WarehousePick/Create" : "/WarehousePick/Edit/" + Model.InterId))">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">出库单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">出库日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">摘要</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">领料部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">领料车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">领料小组</label>
+                    <select class="form-select" name="GroupId" id="GroupId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in groupOptions)
+                        {
+                            var sel = (Model.GroupId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">领料人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">出库明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (!readOnly)
+            {
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="btnPickBom">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        选择BOM清单
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-hint mb-0">从 BOM 清单导入该单除产成品外的全部物料；导入后请填写批号（出库数量默认取 BOM 用量），点击批号框可从在库批次下拉切换（自动带出批次库存与仓库名称），也可手动输入。</div>
+                </div>
+            </div>
+            }
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:5%;" class="text-end">BOMID</th>
+                            <th style="width:8%;">生产单号</th>
+                            <th style="width:7%;">工序名称</th>
+                            <th style="width:15%;">产品名称</th>
+                            <th style="width:7%;" class="text-secondary">规格型号</th>
+                            <th style="width:6%;" class="text-secondary">产品分类</th>
+                            <th style="width:4%;" class="text-secondary">单位</th>
+                            <th style="width:7%;" class="text-end text-secondary">批次库存</th>
+                            <th style="width:7%;" class="text-end text-secondary">领用数量</th>
+                            <th style="width:7%;" class="text-end">出库数量</th>
+                            <th style="width:8%;">批号</th>
+                            <th style="width:7%;" class="text-secondary">仓库名称</th>
+                            <th style="width:6%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="wkBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr data-itemid="@r.ItemId">
+                                <td class="text-end text-secondary">
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <input type="hidden" name="Rows[@ri].BomId" value="@(r.BomId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].StepId" value="@(r.StepId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].ProduceId" value="@(r.ProduceId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].ProduceNo" value="@r.ProduceNo" />
+                                    <input type="hidden" name="Rows[@ri].StepName" value="@r.StepName" />
+                                    <input type="hidden" name="Rows[@ri].ProductName" value="@r.ProductName" />
+                                    <input type="hidden" name="Rows[@ri].Spec" value="@r.Spec" />
+                                    <input type="hidden" name="Rows[@ri].CategoryName" value="@r.CategoryName" />
+                                    <input type="hidden" name="Rows[@ri].Unit" value="@r.Unit" />
+                                    <input type="hidden" name="Rows[@ri].BatchStock" value="@((r.BatchStock ?? 0m).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].UseNum" value="@((r.UseNum ?? 0m).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].WarehouseName" value="@r.WarehouseName" />
+                                    <input type="hidden" name="Rows[@ri].BillUseEntryId" value="@(r.BillUseEntryId ?? 0)" />
+                                    <input type="hidden" name="Rows[@ri].BillUseNo" value="@r.BillUseNo" />
+                                    <span class="wk-bomid">@(r.BomId ?? 0)</span>
+                                </td>
+                                <td class="text-secondary"><span class="wk-produceno">@r.ProduceNo</span></td>
+                                <td class="text-secondary"><span class="wk-stepname">@r.StepName</span></td>
+                                <td>
+                                    <span class="wk-productname">@r.ProductName</span>
+                                </td>
+                                <td class="text-secondary"><span class="wk-spec">@r.Spec</span></td>
+                                <td><span class="badge bg-secondary-lt wk-cat">@r.CategoryName</span></td>
+                                <td class="text-secondary"><span class="wk-unit">@r.Unit</span></td>
+                                <td class="text-end text-secondary"><span class="wk-batchstock">@((r.BatchStock ?? 0m).ToString("0.######"))</span></td>
+                                <td class="text-end text-secondary"><span class="wk-usenum">@((r.UseNum ?? 0m).ToString("0.######"))</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].OutNum" value="@((r.OutNum ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="text" class="form-control form-control-sm wk-batchno" name="Rows[@ri].BatchNo" value="@r.BatchNo" placeholder="批号" @(readOnly ? "disabled" : "") /></td>
+                                <td class="text-secondary"><span class="wk-warehouse">@r.WarehouseName</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>
+                                    @if (!readOnly)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button>
+                                    }
+                                </td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存仓库领料单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<div class="modal modal-blur fade" id="bomModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择BOM清单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-7">
+                        <input type="text" class="form-control" id="bomSearch" placeholder="输入 BOM 单号 / 工序 / 产出品编码或名称 搜索" autocomplete="off">
+                    </div>
+                    <div class="col-md-2">
+                        <input type="number" step="1" min="1" value="1" class="form-control text-end" id="bomQty" title="本次要生产的产成品数量">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="button" class="btn btn-outline-primary w-100" id="btnBomSearch">搜索</button>
+                    </div>
+                </div>
+                <div class="form-hint mb-2">左侧数量为本次要生产的产成品数；选择 BOM 后，每个物料行的「出库数量」自动按 `BOM用量 × 该数量` 计算。</div>
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="form-label mb-1 text-secondary">工序</div>
+                        <div id="bomStepList" class="list-group list-group-flush" style="max-height:360px;overflow:auto;">
+                            <button type="button" class="list-group-item list-group-item-action py-2 text-secondary">加载中…</button>
+                        </div>
+                    </div>
+                    <div class="col-md-9">
+                        <div class="table-responsive" style="max-height:380px;overflow:auto;">
+                            <table class="table table-sm table-vcenter card-table table-hover">
+                                <thead>
+                                    <tr>
+                                        <th class="w-1">BOM单号</th>
+                                        <th>产出品编码</th>
+                                        <th>产出品名称</th>
+                                        <th class="text-secondary">规格</th>
+                                        <th class="text-end">物料数</th>
+                                        <th class="w-1"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="bomListBody">
+                                    <tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="bomModalHint">选择一张 BOM 清单，将导入其中除产成品外的全部物料</span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('wkBody');
+            var rowCount = document.getElementById('rowCount');
+
+            // BOM picker modal widgets
+            var bomModalEl = document.getElementById('bomModal');
+            var bomSearch = document.getElementById('bomSearch');
+            var bomListBody = document.getElementById('bomListBody');
+            var bomModalHint = document.getElementById('bomModalHint');
+            var bomStepList = document.getElementById('bomStepList');
+            var bomTimer = 0;
+            var bomModal = (typeof bootstrap !== 'undefined' && bomModalEl)
+                ? new bootstrap.Modal(bomModalEl) : null;
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var groupSel = document.getElementById('GroupId');
+            var managerSel = document.getElementById('ManagerId');
+
+            var ROW_FIELDS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(rowFields).Replace("</", "<\\/"));
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) { fillOptions(workShopSel, [], '-- 不指定 --'); return; }
+                fetch('/WarehousePick/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadGroups(workShopId) {
+                if (!workShopId) { fillOptions(groupSel, [], '-- 不指定 --'); return; }
+                fetch('/WarehousePick/GetGroups?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(groupSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId, groupId) {
+                var scope = (groupId && parseInt(groupId, 10) > 0) ? groupId : workShopId;
+                if (!scope) { fillOptions(managerSel, [], '-- 不指定 --'); return; }
+                fetch('/WarehousePick/GetManagers?workShopId=' + workShopId + '&groupId=' + scope)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = ''; groupSel.value = ''; managerSel.value = '';
+                    fillOptions(groupSel, [], '-- 不指定 --');
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    groupSel.value = ''; managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadGroups(id);
+                });
+            }
+            if (groupSel) {
+                groupSel.addEventListener('change', function () {
+                    var gid = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(workShopSel.value, gid);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() { if (rowCount) rowCount.textContent = body.rows.length + ' 行'; }
+
+            function reindex() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < ROW_FIELDS.length; k++) {
+                        var el = trs[i].querySelector('[name$="' + ROW_FIELDS[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + ROW_FIELDS[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            // Batch-number dropdown: clicking the input pops a visible list of the
+            // item's in-stock batches (batch no + derived stock) so imported rows can
+            // switch to another batch. Picking one fills the value and refreshes
+            // 批次库存 / 仓库名称. Manual typing still allowed.
+            if (!document.getElementById('batchDropStyle')) {
+                var st = document.createElement('style');
+                st.id = 'batchDropStyle';
+                st.textContent =
+                    '.batch-drop{position:absolute;z-index:2000;background:#fff;border:1px solid rgba(0,0,0,.12);' +
+                    'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;max-height:240px;overflow:auto;}' +
+                    '.batch-drop-hint{font-size:.72rem;color:#6c757d;padding:4px 8px;}' +
+                    '.batch-drop-item{display:flex;width:100%;align-items:center;gap:12px;border:0;background:transparent;' +
+                    'padding:6px 8px;border-radius:4px;font-size:.85rem;text-align:left;cursor:pointer;}' +
+                    '.batch-drop-item:hover{background:rgba(var(--tblr-primary-rgb,13,110,253),.08);}' +
+                    '.batch-drop-qty{margin-left:auto;color:#6c757d;font-variant-numeric:tabular-nums;}';
+                document.head.appendChild(st);
+            }
+            var batchCache = {};
+            var batchPanel = null;
+
+            function fetchBatches(itemId, cb) {
+                if (batchCache[itemId]) { cb(batchCache[itemId]); return; }
+                fetch('/WarehousePick/GetItemBatches?itemId=' + itemId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (rows) { batchCache[itemId] = rows || []; cb(batchCache[itemId]); })
+                    .catch(function (err) { console.error(err); cb([]); });
+            }
+
+            function closeBatchPanel() {
+                if (batchPanel) { batchPanel.remove(); batchPanel = null; }
+            }
+
+            function openBatchPanel(input) {
+                if (input.readOnly) return;
+                var tr = input.closest('tr');
+                var itemId = tr ? tr.getAttribute('data-itemid') : null;
+                if (!itemId || itemId === '0') return;
+                closeBatchPanel();
+                batchPanel = document.createElement('div');
+                batchPanel.className = 'batch-drop';
+                document.body.appendChild(batchPanel);
+                var rect = input.getBoundingClientRect();
+                batchPanel.style.left = (rect.left + window.scrollX) + 'px';
+                batchPanel.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+                batchPanel.style.minWidth = Math.max(rect.width, 200) + 'px';
+                batchPanel.innerHTML = '<div class="batch-drop-hint">在库批次（点击选择）</div><div class="batch-drop-hint">加载中…</div>';
+                fetchBatches(itemId, function (rows) {
+                    if (!batchPanel) return;
+                    if (!rows.length) {
+                        batchPanel.innerHTML = '<div class="batch-drop-hint">该商品无在库批次，可手动输入</div>';
+                        return;
+                    }
+                    var h = '<div class="batch-drop-hint">在库批次（点击选择）</div>';
+                    for (var i = 0; i < rows.length; i++) {
+                        h += '<button type="button" class="batch-drop-item" data-bn="' + esc(rows[i].batchNo) + '">' +
+                             '<span>' + esc(rows[i].batchNo) + '</span>' +
+                             '<span class="batch-drop-qty">' + (Number(rows[i].qty) || 0) + '</span></button>';
+                    }
+                    batchPanel.innerHTML = h;
+                    var items = batchPanel.querySelectorAll('.batch-drop-item');
+                    for (var j = 0; j < items.length; j++) {
+                        items[j].addEventListener('click', function () {
+                            input.value = this.getAttribute('data-bn');
+                            closeBatchPanel();
+                            refreshBatchInfo(input.closest('tr'));
+                        });
+                    }
+                });
+            }
+
+            body.addEventListener('focus', function (e) {
+                if (e.target.classList && e.target.classList.contains('wk-batchno')) openBatchPanel(e.target);
+            }, true);
+            document.addEventListener('mousedown', function (e) {
+                if (!batchPanel) return;
+                if (batchPanel.contains(e.target)) return;
+                if (e.target.classList && e.target.classList.contains('wk-batchno')) return;
+                closeBatchPanel();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeBatchPanel();
+            });
+
+            // When a row's BatchNo changes, refresh the row's 批次库存 / 仓库名称 display
+            // and hidden inputs (only relevant for manual rows; imported rows already have
+            // the right values from the FIFO allocation).
+            function refreshBatchInfo(tr) {
+                var bnInput = tr.querySelector('[name$=".BatchNo"]');
+                if (!bnInput) return;
+                var bn = String(bnInput.value || '').trim();
+                if (!bn) return;
+                fetch('/WarehousePick/GetBatchInfo?batchNo=' + encodeURIComponent(bn))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        var bs = tr.querySelector('[name$=".BatchStock"]');
+                        var wn = tr.querySelector('[name$=".WarehouseName"]');
+                        var bsSpan = tr.querySelector('.wk-batchstock');
+                        var wnSpan = tr.querySelector('.wk-warehouse');
+                        if (bs) bs.value = (d.batchStock || 0);
+                        if (wn) wn.value = d.warehouseName || '';
+                        if (bsSpan) bsSpan.textContent = (Number(d.batchStock) || 0).toString();
+                        if (wnSpan) wnSpan.textContent = d.warehouseName || '';
+                    })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+                if (e.target.classList.contains('wk-batchno')) refreshBatchInfo(e.target.closest('tr'));
+            }, true);
+
+            function addRow(item) {
+                var id = String(item.id || item.itemId || 0);
+                if (!id || id === '0') return;
+                var bomId = String(item.bomId || 0);
+                var stepId = String(item.stepId || 0);
+                var stepName = item.stepName || '';
+                // useNum = "should pick" qty (FBaseNum * produceQty, server-computed)
+                // outNum = "actually picked" qty, seeded equal to useNum; user may lower it
+                // but ValidateBill rejects anything above useNum.
+                var useNum = Number(item.useNum != null ? item.useNum : (item.baseNum || 0)) || 0;
+                var outNum = Number(item.outNum != null ? item.outNum : useNum);
+                var batchStock = Number(item.batchStock || 0) || 0;
+                var batchNo = item.batchNo || '';
+                var warehouseName = item.warehouseName || '';
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                // Hidden-only fields: display cells are plain <span>s, so the value must travel
+                // in a hidden input. OutNum / BatchNo / Note are rendered as real <input>s below,
+                // so they MUST NOT be duplicated here -- two inputs sharing one name make
+                // ASP.NET model binding fail (it receives "12.50,12.50" and yields null).
+                var fields = [
+                    ['ItemId', id],
+                    ['BomId', bomId],
+                    ['StepId', stepId],
+                    ['ProduceId', '0'],
+                    ['ProduceNo', ''],
+                    ['StepName', stepName],
+                    ['ProductName', item.cpjc || ''],
+                    ['Spec', item.cpgg || ''],
+                    ['CategoryName', item.cplb || ''],
+                    ['Unit', item.unit || ''],
+                    ['BatchStock', String(batchStock)],
+                    ['UseNum', String(useNum)],
+                    ['WarehouseName', warehouseName],
+                    ['BillUseEntryId', '0'],
+                    ['BillUseNo', ''],
+                ];
+                var hiddenHtml = '';
+                for (var i = 0; i < fields.length; i++) {
+                    hiddenHtml += '<input type="hidden" name="Rows[0].' + fields[i][0] + '" value="' + esc(fields[i][1]) + '">';
+                }
+                tr.innerHTML =
+                    '<td class="text-end text-secondary">' + hiddenHtml + '<span class="wk-bomid">' + esc(bomId) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-produceno"></span></td>' +
+                    '<td class="text-secondary"><span class="wk-stepname">' + esc(stepName) + '</span></td>' +
+                    '<td><span class="wk-productname">' + esc(item.cpjc) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-spec">' + esc(item.cpgg) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt wk-cat">' + esc(item.cplb) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-unit">' + esc(item.unit) + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-batchstock">' + batchStock + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-usenum">' + useNum + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].OutNum" value="' + outNum.toFixed(2) + '"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm wk-batchno" name="Rows[0].BatchNo" value="' + esc(batchNo) + '"></td>' +
+                    '<td class="text-secondary"><span class="wk-warehouse">' + esc(warehouseName) + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value="' + esc(item.remark || '') + '"></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+            }
+
+            // ---------------------------------------------------------------- BOM picker modal
+
+            function renderBomList(list) {
+                if (!list || list.length === 0) {
+                    bomListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">未找到匹配的 BOM 清单</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var b = list[i];
+                    h += '<tr data-bomid="' + esc(b.bomId) + '">' +
+                        '<td class="text-secondary">' + esc(b.bomId) + '</td>' +
+                        '<td class="text-secondary">' + esc(b.outputCpbm) + '</td>' +
+                        '<td>' + esc(b.outputName) + '</td>' +
+                        '<td class="text-secondary">' + esc(b.outputSpec) + '</td>' +
+                        '<td class="text-end"><span class="badge bg-azure-lt">' + (b.rawCount || 0) + ' / ' + (b.itemCount || 0) + '</span></td>' +
+                        '<td><button type="button" class="btn btn-sm btn-primary bom-pick">选择</button></td>' +
+                        '</tr>';
+                }
+                bomListBody.innerHTML = h;
+            }
+
+            // left panel: process steps; right panel: BOMs of the selected step
+            var currentStepId = 0;      // 0 = all steps
+            var stepsLoaded = false;
+            var lastSteps = null;
+
+            function renderStepList(steps) {
+                if (!bomStepList) return;
+                var h = '<button type="button" class="list-group-item list-group-item-action py-2' +
+                        (currentStepId === 0 ? ' active' : '') + '" data-stepid="0">全部工序</button>';
+                if (steps && steps.length > 0) {
+                    for (var i = 0; i < steps.length; i++) {
+                        var s = steps[i];
+                        h += '<button type="button" class="list-group-item list-group-item-action py-2' +
+                            (currentStepId === s.stepId ? ' active' : '') + '" data-stepid="' + s.stepId + '">' +
+                            esc(s.stepName || ('工序#' + s.stepId)) +
+                            ' <span class="badge bg-azure-lt float-end">' + (s.bomCount || 0) + '</span></button>';
+                    }
+                } else {
+                    h += '<span class="list-group-item py-2 text-secondary">暂无工序</span>';
+                }
+                bomStepList.innerHTML = h;
+            }
+
+            function loadBomSteps() {
+                if (!bomStepList) return;
+                fetch('/WarehousePick/GetBomSteps')
+                    .then(function (r) { return r.json(); })
+                    .then(function (steps) {
+                        lastSteps = steps;
+                        stepsLoaded = true;
+                        renderStepList(steps);
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        bomStepList.innerHTML = '<span class="list-group-item py-2 text-danger">加载失败</span>';
+                    });
+            }
+
+            function loadBomList(kw) {
+                bomListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>';
+                var url = '/WarehousePick/SearchBoms?' + (kw ? 'keyword=' + encodeURIComponent(kw) + '&' : '')
+                    + 'stepId=' + currentStepId;
+                fetch(url)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderBomList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        bomListBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            function importBom(bomId) {
+                var qty = parseFloat(document.getElementById('bomQty').value) || 1;
+                if (qty <= 0) qty = 1;
+                var added = 0;
+                if (bomModalHint) bomModalHint.textContent = '正在导入…';
+                fetch('/WarehousePick/GetBomDetails?bomId=' + encodeURIComponent(bomId)
+                      + '&qty=' + encodeURIComponent(qty.toFixed(4)))
+                    .then(function (r) { return r.json(); })
+                    .then(function (rows) {
+                        for (var i = 0; i < rows.length; i++) {
+                            if (rows[i].stopped) continue;      // skip discontinued products
+                            addRow(rows[i]);
+                            added++;
+                        }
+                        if (bomModalHint) bomModalHint.textContent = '已导入 ' + added + ' 行物料（产成品数 ×' + qty + '）';
+                        if (bomModal) bomModal.hide();
+                        else if (bomModalEl) bomModalEl.classList.remove('show');
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        if (bomModalHint) bomModalHint.textContent = '导入失败，请重试';
+                    });
+            }
+
+            var pickBtn = document.getElementById('btnPickBom');
+            if (pickBtn) {
+                pickBtn.addEventListener('click', function () {
+                    if (bomSearch) bomSearch.value = '';
+                    if (bomModalHint) bomModalHint.textContent = '选择一张 BOM 清单，将导入其中除产成品外的全部物料';
+                    currentStepId = 0;
+                    if (!stepsLoaded) loadBomSteps(); else renderStepList(lastSteps);
+                    loadBomList('');
+                    if (bomModal) bomModal.show();
+                });
+            }
+            if (bomStepList) {
+                bomStepList.addEventListener('click', function (e) {
+                    var item = e.target.closest('[data-stepid]');
+                    if (!item) return;
+                    currentStepId = parseInt(item.getAttribute('data-stepid'), 10) || 0;
+                    var btns = bomStepList.querySelectorAll('[data-stepid]');
+                    for (var i = 0; i < btns.length; i++) btns[i].classList.remove('active');
+                    item.classList.add('active');
+                    loadBomList(bomSearch ? bomSearch.value.trim() : '');
+                });
+            }
+            if (bomSearch) {
+                bomSearch.addEventListener('input', function () {
+                    clearTimeout(bomTimer);
+                    var kw = this.value.trim();
+                    bomTimer = setTimeout(function () { loadBomList(kw); }, 300);
+                });
+            }
+            var bomSearchBtn = document.getElementById('btnBomSearch');
+            if (bomSearchBtn) {
+                bomSearchBtn.addEventListener('click', function () {
+                    loadBomList(bomSearch ? bomSearch.value.trim() : '');
+                });
+            }
+            if (bomListBody) {
+                bomListBody.addEventListener('click', function (e) {
+                    var btn = e.target.closest('.bom-pick');
+                    if (!btn) return;
+                    var tr = btn.closest('tr');
+                    if (!tr) return;
+                    importBom(tr.getAttribute('data-bomid'));
+                });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('wk-del')) { e.target.closest('tr').remove(); reindex(); }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

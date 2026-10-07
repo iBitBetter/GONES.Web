@@ -1,0 +1,176 @@
+@model System.Collections.Generic.List<GONES.Model.Pg.t_PMS_Worker>
+@{
+    ViewBag.Title = "人员管理";
+    var depNames = (System.Collections.Generic.Dictionary<int, string>)ViewBag.DepNames;
+    var tree = (System.Collections.Generic.List<GONES.Web.Models.DepartmentNode>)ViewBag.DepTree;
+    int currentDepId = (int)ViewBag.CurrentDepId;
+    string currentDepName = (string)ViewBag.CurrentDepName;
+
+    // 树状菜单参数化（复用 Shared/_DepTreeNode，同部门管理/用户管理）
+    ViewBag.DepTreeBaseUrl = "/PmsWorker";
+    ViewBag.DepTreeParam = "depId";
+    // 默认展开集合：选中部门时展开其祖先链；未选中时展开全部一级节点
+    var depExpanded = new System.Collections.Generic.HashSet<int>();
+    CollectExpandPath(tree, currentDepId, depExpanded);
+    if (currentDepId == 0) { foreach (var r in tree) depExpanded.Add(r.Id); }
+    ViewBag.DepExpandedIds = depExpanded;
+}
+@functions {
+    static bool CollectExpandPath(System.Collections.Generic.List<GONES.Web.Models.DepartmentNode> nodes, int target, System.Collections.Generic.HashSet<int> expanded)
+    {
+        foreach (var n in nodes)
+        {
+            if (n.Id == target || CollectExpandPath(n.Children, target, expanded))
+            {
+                expanded.Add(n.Id);
+                return true;
+            }
+        }
+        return false;
+    }
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-primary" href="/PmsWorker/Create@(currentDepId > 0 ? "?depId=" + currentDepId : "")">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                    <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                </svg>
+                新建
+            </a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="row g-3">
+    <!-- 左侧：部门架构树状菜单，点击节点过滤该部门（含子部门）下的人员 -->
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">部门架构</h3>
+            </div>
+            <div class="card-body py-2">
+                <ul class="item-tree list-unstyled mb-0">
+                    <li class="tree-node">
+                        <div class="tree-item @(currentDepId == 0 ? "active" : "")">
+                            <span class="tree-toggle-placeholder"></span>
+                            <a class="tree-link" href="/PmsWorker">所有部门</a>
+                        </div>
+                    </li>
+                    @foreach (var node in tree)
+                    {
+                        @await Html.PartialAsync("_DepTreeNode", node)
+                    }
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：人员列表 -->
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th>姓名</th>
+                            <th>所属部门</th>
+                            <th>手机号</th>
+                            <th>身份证号</th>
+                            <th>状态</th>
+                            <th class="w-1">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var w in Model)
+                        {
+                            <tr>
+                                <td>@w.FName</td>
+                                <td>@(w.DEPID > 0 && depNames.ContainsKey(w.DEPID) ? depNames[w.DEPID] : "-")</td>
+                                <td>@(string.IsNullOrWhiteSpace(w.FMobile) ? "-" : w.FMobile)</td>
+                                <td>@(string.IsNullOrWhiteSpace(w.FIDNumber) ? "-" : w.FIDNumber)</td>
+                                <td>
+                                    @if (w.Status == true)
+                                    {
+                                        <span class="badge bg-green-lt">启用</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-secondary-lt">停用</span>
+                                    }
+                                </td>
+                                <td>
+                                    <div class="btn-list flex-nowrap">
+                                        <a class="btn btn-sm btn-outline-primary" href="/PmsWorker/Edit/@w.ID">修改</a>
+                                        <form asp-action="Delete" asp-route-id="@w.ID" method="post" class="d-inline"
+                                              data-confirm=""
+                                              data-confirm-title="删除人员"
+                                              data-confirm-message="确定删除人员“@w.FName”吗？"
+                                              data-confirm-yes="确定删除"
+                                              data-confirm-yes-class="btn-danger">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            @if (Model.Count == 0)
+            {
+                <div class="card-body text-center text-secondary py-5">
+                    @(currentDepId > 0 ? "该部门下暂无人员。" : "暂无人员数据。")
+                </div>
+            }
+            @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <style>
+        /* 左侧部门架构树状菜单（同 PmsItem/SysDepartment/SysUser） */
+        .item-tree, .item-tree ul { list-style: none; margin: 0; padding: 0; }
+        .item-tree .tree-children { margin-left: 1.05rem; padding-left: .35rem; border-left: 1px dashed var(--tblr-border-color, #e0e6ee); }
+        .item-tree .tree-item { display: flex; align-items: center; gap: .1rem; border-radius: .35rem; padding: .3rem .4rem; margin: .1rem 0; color: var(--tblr-body-color, #1e293b); }
+        .item-tree .tree-item:hover { background: var(--tblr-active-bg, rgba(32,107,196,.06)); }
+        .item-tree .tree-item.active { background: var(--tblr-primary, #206bc4); }
+        .item-tree .tree-item.active .tree-link { color: #fff; font-weight: 600; }
+        .item-tree .tree-item.active .tree-toggle { color: #fff; }
+        .item-tree .tree-link { flex: 1 1 auto; color: inherit; text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .item-tree .tree-toggle, .item-tree .tree-toggle-placeholder { flex: 0 0 1.25rem; width: 1.25rem; height: 1.25rem; display: inline-flex; align-items: center; justify-content: center; }
+        .item-tree .tree-toggle { border: 0; background: transparent; padding: 0; color: var(--tblr-secondary, #6c757d); border-radius: .25rem; }
+        .item-tree .tree-toggle:hover { background: var(--tblr-border-color, #e0e6ee); }
+        .item-tree .tree-toggle svg { transition: transform .15s ease; }
+        .item-tree .tree-toggle.open svg { transform: rotate(90deg); }
+    </style>
+    <script>
+    (function () {
+        var treeRoot = document.querySelector('.item-tree');
+        if (treeRoot) {
+            treeRoot.addEventListener('click', function (e) {
+                var t = e.target.closest('.tree-toggle');
+                if (!t) return;
+                e.preventDefault();
+                var li = t.closest('.tree-node');
+                var childUl = li ? li.querySelector(':scope > .tree-children') : null;
+                if (!childUl) return;
+                var nowOpen = childUl.classList.toggle('d-none') === false;
+                t.classList.toggle('open', nowOpen);
+                t.setAttribute('aria-expanded', nowOpen ? 'true' : 'false');
+            });
+        }
+    })();
+    </script>
+}

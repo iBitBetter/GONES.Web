@@ -1,0 +1,106 @@
+@using GONES.Web.Models
+@model ProductInOutStockViewModel
+@{
+    ViewData["Title"] = "生产产品收发存统计";
+    var filter = ViewBag.Filter as Dictionary<string, string> ?? new Dictionary<string, string>();
+    var warehouses = ViewBag.WarehouseOptions as List<GONES.Model.Pg.t_ERP_Department> ?? new List<GONES.Model.Pg.t_ERP_Department>();
+    var categories = ViewBag.CategoryOptions as List<string> ?? new List<string>();
+    string T(object v) => v is decimal d ? d.ToString("0.####") : (v?.ToString() ?? "");
+}
+
+@* 无 Tab 兜底标题：Tab(iframe) 内由 _Layout 脚本移除，直链打开时显示 *@
+<h2 class="page-title gones-standalone-title d-none mb-3">@(ViewData["Title"])</h2>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end" id="filterForm">
+            <div class="col-auto">
+                <label class="form-label mb-0">仓库</label>
+                <select name="warehouseId" class="form-select form-select-sm">
+                    <option value="">全部仓库</option>
+                    @foreach (var w in warehouses)
+                    {
+                        <option value="@w.ID" selected="@(ViewBag.WarehouseId != null && (int?)ViewBag.WarehouseId == w.ID)">@w.DEPName</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">产品分类</label>
+                <select name="category" class="form-select form-select-sm">
+                    <option value="">全部分类</option>
+                    @foreach (var c in categories)
+                    {
+                        <option value="@c" selected="@(filter["category"] == c)">@c</option>
+                    }
+                </select>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">单据日期</label>
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" class="form-control form-control-sm" name="dateFrom" id="dateFrom" value="@filter["dateFrom"]" />
+                    <span class="text-secondary">~</span>
+                    <input type="date" class="form-control form-control-sm" name="dateTo" id="dateTo" value="@filter["dateTo"]" />
+                </div>
+            </div>
+            <div class="col-auto">
+                <label class="form-label mb-0">关键字</label>
+                <input type="text" class="form-control form-control-sm" name="keyword" value="@filter["keyword"]" placeholder="商品代码/名称/拼音" />
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">查询</button>
+                <a class="btn btn-sm btn-outline-secondary" href="/ProductInOutStock">清空</a>
+            </div>
+            <div class="col-auto">
+                <a class="btn btn-sm btn-outline-success" href="/ProductInOutStock/Export?warehouseId=@(ViewBag.WarehouseId)&category=@filter["category"]&dateFrom=@filter["dateFrom"]&dateTo=@filter["dateTo"]&keyword=@filter["keyword"]">导出 .xls</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">收发存明细（按 商品 × 仓库，37 道工序净额）</h3>
+        <div class="card-actions text-secondary small text-nowrap">
+            <span>期间：@(string.IsNullOrEmpty(filter["dateFrom"]) ? "历史起" : filter["dateFrom"]) ~ @(string.IsNullOrEmpty(filter["dateTo"]) ? "今" : filter["dateTo"])</span>
+        </div>
+    </div>
+    <div class="table-responsive" style="max-height:72vh;overflow:auto">
+        <table class="table table-vcenter card-table table-sm text-nowrap">
+            <thead class="sticky-top" style="position:sticky;top:0;z-index:2;background:#fff">
+                <tr>
+                    @foreach (var h in Model.Columns)
+                    {
+                        <th>@h</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in Model.Rows)
+                {
+                    <tr>
+                        @for (int i = 0; i < Model.Columns.Count; i++)
+                        {
+                            var v = r.Cells[i];
+                            <td class="@(Model.Numeric[i] ? "text-end" : "")">@T(v)</td>
+                        }
+                    </tr>
+                }
+                @if (Model.Rows.Count == 0)
+                {
+                    <tr><td colspan="@Model.Columns.Count" class="text-center text-secondary">无数据（当前筛选条件下没有已审核的库存单据）</td></tr>
+                }
+            </tbody>
+            <tfoot>
+                <tr class="fw-bold table-secondary">
+                    @for (int i = 0; i < Model.Columns.Count; i++)
+                    {
+                        <td class="@(Model.Numeric[i] ? "text-end" : "")">@T(Model.SummaryCells[i])</td>
+                    }
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="card-footer">
+        @await Html.PartialAsync("_Pager", (GONES.Web.Models.PagerViewModel)ViewBag.Pager)
+    </div>
+</div>

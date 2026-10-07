@@ -1,0 +1,151 @@
+@model GONES.Web.Models.StepEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "工序编辑" : "新建工序";
+    bool isEdit = Model.ID > 0;
+}
+<div class="row justify-content-center">
+    <div class="col-xl-10">
+        <form class="card" asp-action="@(isEdit ? "Edit" : "Create")"
+              asp-route-id="@(isEdit ? (int?)Model.ID : null)" method="post" autocomplete="off">
+            @if (isEdit)
+            {
+                <input type="hidden" asp-for="ID" />
+            }
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label required" asp-for="Name">工序名称</label>
+                        <input asp-for="Name" class="form-control" placeholder="请输入工序名称" />
+                        <span asp-validation-for="Name" class="text-danger"></span>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="Type">工序类型</label>
+                        <select asp-for="Type" class="form-select">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var t in (System.Collections.Generic.List<string>)ViewBag.TypeOptions)
+                            {
+                                <option value="@t">@t</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.Type) && !((System.Collections.Generic.List<string>)ViewBag.TypeOptions).Contains(Model.Type))
+                            {
+                                <option value="@Model.Type" selected>@Model.Type</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="Algo">工序算法</label>
+                        <select asp-for="Algo" class="form-select">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var a in (System.Collections.Generic.List<string>)ViewBag.AlgoOptions)
+                            {
+                                <option value="@a">@a</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.Algo) && !((System.Collections.Generic.List<string>)ViewBag.AlgoOptions).Contains(Model.Algo))
+                            {
+                                <option value="@Model.Algo" selected>@Model.Algo</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="Hour">标准工时</label>
+                        <input asp-for="Hour" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="Num">标准数量</label>
+                        <input asp-for="Num" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="SingleArti">单件人工</label>
+                        <input asp-for="SingleArti" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="HourArti">小时人工</label>
+                        <input asp-for="HourArti" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="Price">工序价格</label>
+                        <input asp-for="Price" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="WorkHourUnit">工序单位</label>
+                        <select asp-for="WorkHourUnit" class="form-select">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var u in (System.Collections.Generic.List<string>)ViewBag.UnitOptions)
+                            {
+                                <option value="@u">@u</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.WorkHourUnit) && !((System.Collections.Generic.List<string>)ViewBag.UnitOptions).Contains(Model.WorkHourUnit))
+                            {
+                                <option value="@Model.WorkHourUnit" selected>@Model.WorkHourUnit</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="PriceUnit">计价单位</label>
+                        <select asp-for="PriceUnit" class="form-select">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var u in (System.Collections.Generic.List<string>)ViewBag.UnitOptions)
+                            {
+                                <option value="@u">@u</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.PriceUnit) && !((System.Collections.Generic.List<string>)ViewBag.UnitOptions).Contains(Model.PriceUnit))
+                            {
+                                <option value="@Model.PriceUnit" selected>@Model.PriceUnit</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="FixedLoss">固定损耗</label>
+                        <input asp-for="FixedLoss" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="LossStandValue">损耗标准值</label>
+                        <input asp-for="LossStandValue" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="LossRate">损耗率</label>
+                        <input asp-for="LossRate" class="form-control" placeholder="如 0%" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="LossValue">损耗值</label>
+                        <input asp-for="LossValue" class="form-control" type="number" step="any" min="0" placeholder="0" />
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label class="form-label" asp-for="LossUnit">损耗单位</label>
+                        <select asp-for="LossUnit" class="form-select">
+                            <option value="">-- 请选择 --</option>
+                            @foreach (var u in (System.Collections.Generic.List<string>)ViewBag.UnitOptions)
+                            {
+                                <option value="@u">@u</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Model.LossUnit) && !((System.Collections.Generic.List<string>)ViewBag.UnitOptions).Contains(Model.LossUnit))
+                            {
+                                <option value="@Model.LossUnit" selected>@Model.LossUnit</option>
+                            }
+                        </select>
+                    </div>
+                </div>
+
+                <div asp-validation-summary="All" class="text-danger"></div>
+            </div>
+            <div class="card-footer">
+                <div class="btn-list justify-content-end">
+                    <a class="btn" href="/PmsStep">关闭(C)</a>
+                    <button type="submit" class="btn btn-primary">保存(S)</button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

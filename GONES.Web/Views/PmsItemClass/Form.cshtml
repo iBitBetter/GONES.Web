@@ -1,0 +1,53 @@
+@model GONES.Web.Models.ItemClassEditViewModel
+@{
+    ViewBag.Title = Model.ID > 0 ? "编辑商品分类" : "新增商品分类";
+    var parentOptions = (System.Collections.Generic.List<GONES.Web.Models.SelectOption>)ViewBag.ParentOptions;
+    var isEdit = Model.ID > 0;
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/PmsItemClass">返回列表</a>
+        </div>
+    </div>
+</div>
+
+<div asp-validation-summary="ModelOnly" class="text-danger mb-3"></div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <form asp-action="@(isEdit ? "Edit" : "Create")" asp-route-id="@(isEdit ? Model.ID : (int?)null)" method="post" class="card">
+            @Html.AntiForgeryToken()
+            <input type="hidden" asp-for="ID" />
+            <div class="card-body">
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="Name"></label>
+                    <input class="form-control" asp-for="Name" />
+                    <span asp-validation-for="Name" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label required" asp-for="ParentId"></label>
+                    <select class="form-select" asp-for="ParentId">
+                        <option value="">-- 请选择上级类别 --</option>
+                        @foreach (var opt in parentOptions)
+                        {
+                            <option value="@opt.Id">@opt.Text</option>
+                        }
+                    </select>
+                    <div class="form-hint">末级分类（第 3 级）下不能再新增子分类；根节点「所有分类」的子级为大类。</div>
+                    <span asp-validation-for="ParentId" class="invalid-feedback d-block"></span>
+                </div>
+                <div class="mb-3">
+                    <label class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" asp-for="Enabled" />
+                        <span class="form-check-label" asp-for="Enabled"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+

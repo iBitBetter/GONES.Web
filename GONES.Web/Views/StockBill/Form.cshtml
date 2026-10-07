@@ -1,0 +1,572 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model StockBillEditViewModel
+@{
+    ViewBag.Title = "采购入库单维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var suppliers = (List<t_ERP_DataDict>)ViewBag.Suppliers;
+    var inspectors = (List<t_ERP_DataDict>)ViewBag.Inspectors;
+    var taxRates = (List<t_ERP_DataDict>)ViewBag.TaxRates;
+    var itemCategories = (List<string>)ViewBag.ItemCategories;
+    var rowItems = (Dictionary<int, t_ERP_ITEM>)ViewBag.RowItems;
+    var taxRateValues = (Dictionary<int, decimal>)ViewBag.TaxRateValues;
+    var createrName = (string)ViewBag.CreaterName;
+    var modifyName = (string)ViewBag.ModifyName;
+    var rows = Model.Rows ?? new List<StockBillRowInput>();
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+
+    // 只读页（Details）把 action 置空并阻断提交：否则浏览器回车隐式提交会打到 Details（无 POST 动作）。
+    // formOnSubmit 为 null 时 Razor 直接省略 onsubmit 属性。
+    var formAction = readOnly ? "" : (isNew ? "/StockBill/Create" : "/StockBill/Edit/" + Model.InterId);
+    var formOnSubmit = readOnly ? "return false;" : null;
+    // JS addRow 模板用的税率选项（与服务端渲染的 select 保持一致）。
+    // 模式与 PmsBom/ProductIn 等 view 一致：JSON 序列化字符串数组 + Replace("</", "<\\/") 防 </script> 注入；
+    // JS 端 addRow 用 taxOptionsJson.join('') 拼到 select。
+    var taxOptionsList = new List<string> { "<option value=\"0\">无</option>" };
+    taxOptionsList.AddRange(taxRates.Select(t => "<option value=\"" + t.ID + "\">" + System.Web.HttpUtility.HtmlEncode(t.DictName) + "</option>"));
+    var taxOptionsJson = System.Text.Json.JsonSerializer.Serialize(taxOptionsList).Replace("</", "<\\/");
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看采购入库单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/StockBill">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@formAction" onsubmit="@formOnSubmit">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">单据编号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">单据日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">修改人 / 时间</label>
+                    <input type="text" class="form-control" value="@(string.IsNullOrEmpty(modifyName) ? "" : modifyName + (Model.ModifyTime != null ? "  " + Model.ModifyTime?.ToString("yyyy-MM-dd") : ""))" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">入库部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库仓库</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">供货单位</label>
+                    <select class="form-select" name="BuyingUnit" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var s in suppliers)
+                        {
+                            var sel = (Model.BuyingUnit == s.DictName) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + Html.Encode(s.DictName) + "\"" + sel + ">" + Html.Encode(s.DictName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">检验人</label>
+                    <select class="form-select" name="Inspectors" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var ins in inspectors)
+                        {
+                            var sel = (Model.Inspectors == ins.DictName) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + Html.Encode(ins.DictName) + "\"" + sel + ">" + Html.Encode(ins.DictName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-9">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">入库明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-12">
+                    <button type="button" class="btn btn-primary" id="btnPickItems" @(readOnly ? "disabled" : "")>批量添加商品</button>
+                    <div class="form-hint mt-1">入库数量默认 0.00 由操作员填写；单价默认取商品成本单价；含税金额、税额、税后单价/金额自动计算。默认列出产成品以外的全部商品，可在弹窗中按分类筛选。</div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:14%;">产品名称</th>
+                            <th style="width:10%;">规格型号</th>
+                            <th style="width:6%;">单位</th>
+                            <th style="width:8%;">产品分类</th>
+                            <th style="width:9%;">入库数量</th>
+                            <th style="width:9%;">含税单价</th>
+                            <th style="width:10%;">税率</th>
+                            <th style="width:9%;">含税金额</th>
+                            <th style="width:8%;">税额</th>
+                            <th style="width:9%;">税后单价</th>
+                            <th style="width:9%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="sbBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            t_ERP_ITEM info = null;
+                            rowItems.TryGetValue(r.ItemId, out info);
+                            var rate = taxRateValues.ContainsKey(r.TaxRateId) ? taxRateValues[r.TaxRateId] : 0m;
+                            var amount = (r.Qty ?? 0m) * (r.Price ?? 0m);
+                            var afterAmount = rate > 0 ? Math.Round(amount / (1 + rate), 2) : amount;
+                            var taxAmount = amount - afterAmount;
+                            var afterPrice = rate > 0 ? Math.Round((r.Price ?? 0m) / (1 + rate), 5) : (r.Price ?? 0m);
+                            <tr data-itemid="@r.ItemId">
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <span>@(info?.ItemShortName)</span>
+                                    <span class="text-secondary small d-block">@(info?.ItemCode)</span>
+                                </td>
+                                <td class="text-secondary">@(info?.ItemSpec)</td>
+                                <td class="text-secondary">@(info?.BaseUnit)</td>
+                                <td><span class="badge bg-secondary-lt">@(info?.ProductCategory)</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 sb-calc" name="Rows[@ri].Qty" value="@r.Qty?.ToString("0.00")" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dec2 sb-calc" name="Rows[@ri].Price" value="@r.Price?.ToString("0.00")" @(readOnly ? "disabled" : "") /></td>
+                                <td>
+                                    <select class="form-select form-select-sm sb-calc sb-taxsel" name="Rows[@ri].TaxRateId" @(readOnly ? "disabled" : "")>
+                                        <option value="0">无</option>
+                                        @foreach (var t in taxRates)
+                                        {
+                                            var tsel = (r.TaxRateId == t.ID) ? " selected" : "";
+                                            @Html.Raw("<option value=\"" + t.ID + "\"" + tsel + ">" + Html.Encode(t.DictName) + "</option>")
+                                        }
+                                    </select>
+                                </td>
+                                <td><span class="sb-amount text-secondary">@amount.ToString("0.00")</span></td>
+                                <td><span class="sb-tax text-secondary">@taxAmount.ToString("0.00")</span></td>
+                                <td><span class="sb-afterprice text-secondary">@afterPrice.ToString("0.00")</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>@if (!readOnly)
+                                {<button type="button" class="btn btn-sm btn-outline-danger sb-del">删</button>}</td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存采购入库单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<!-- 商品批量选择模态框：默认列出产成品以外的全部商品，支持关键字与分类过滤 -->
+<div class="modal modal-blur" id="itemModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择商品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-auto">
+                        <select class="form-select" id="pickCplb">
+                            <option value="">全部分类（不含产成品）</option>
+                            @foreach (var c in itemCategories)
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-auto">
+                        <input type="text" class="form-control" id="pickKw" placeholder="编码 / 名称 / 规格 / 拼音码" autocomplete="off" />
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-primary" id="btnPickSearch">查询</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:420px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1"><input type="checkbox" id="pickCheckAll" /></th>
+                                <th>商品编码</th>
+                                <th>产品名称</th>
+                                <th class="text-secondary">规格型号</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="text-secondary">产品分类</th>
+                                <th class="text-end">成本单价</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pickListBody">
+                            <tr><td colspan="7" class="text-center text-secondary py-4">正在加载商品…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="pickModalHint">勾选商品后点击「添加所选」，已存在于明细中的商品会自动跳过</span>
+                <button type="button" class="btn btn-success" id="btnPickImport">添加所选</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <style>
+        /* 税率下拉：防止被长商品名列挤压导致 "13%" 显示不全 */
+        .sb-taxsel {
+            min-width: 92px;
+            padding-left: .5rem;
+            padding-right: 1.6rem;
+        }
+    </style>
+    <script>
+        (function () {
+            var taxOptionsJson = @Html.Raw(taxOptionsJson);
+            var body = document.getElementById('sbBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var itemModalEl = document.getElementById('itemModal');
+            var pickListBody = document.getElementById('pickListBody');
+            var pickCplb = document.getElementById('pickCplb');
+            var pickKw = document.getElementById('pickKw');
+            var pickCheckAll = document.getElementById('pickCheckAll');
+            var pickModalHint = document.getElementById('pickModalHint');
+            var itemModal = (typeof bootstrap !== 'undefined' && itemModalEl)
+                ? new bootstrap.Modal(itemModalEl) : null;
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var managerSel = document.getElementById('ManagerId');
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) {
+                    fillOptions(workShopSel, [], '-- 不指定 --');
+                    return;
+                }
+                fetch('/StockBill/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId) {
+                if (!workShopId) {
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    return;
+                }
+                fetch('/StockBill/GetManagers?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = '';
+                    managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(id);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() {
+                if (rowCount) rowCount.textContent = body.rows.length + ' 行';
+            }
+
+            function reindex() {
+                var fields = ['ItemId', 'Qty', 'Price', 'TaxRateId', 'Note'];
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < fields.length; k++) {
+                        var el = trs[i].querySelector('[name$="' + fields[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + fields[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function getRate(tr) {
+                var sel = tr.querySelector('[name$=".TaxRateId"]');
+                var opt = sel.options[sel.selectedIndex];
+                var t = (opt && opt.textContent || '').replace('%', '').trim();
+                var v = parseFloat(t);
+                return isNaN(v) ? 0 : v / 100;
+            }
+
+            function recalc(tr) {
+                var qty = parseFloat(tr.querySelector('[name$=".Qty"]').value) || 0;
+                var price = parseFloat(tr.querySelector('[name$=".Price"]').value) || 0;
+                var rate = getRate(tr);
+                var amount = qty * price;
+                var afterAmount = rate > 0 ? Math.round(amount / (1 + rate) * 100) / 100 : amount;
+                var taxAmount = Math.round((amount - afterAmount) * 100) / 100;
+                var afterPrice = rate > 0 ? Math.round(price / (1 + rate) * 100000) / 100000 : price;
+                tr.querySelector('.sb-amount').textContent = amount.toFixed(2);
+                tr.querySelector('.sb-tax').textContent = taxAmount.toFixed(2);
+                tr.querySelector('.sb-afterprice').textContent = afterPrice.toFixed(2);
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+                if (e.target.classList.contains('sb-calc')) recalc(e.target.closest('tr'));
+            }, true);
+
+            body.addEventListener('change', function (e) {
+                if (e.target && String(e.target.name).indexOf('TaxRateId') >= 0) recalc(e.target.closest('tr'));
+            });
+
+            // returns true when the row was added; false when the item is already present
+            function addRow(item) {
+                var id = String(item.id);
+                if (!id) return false;
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-itemid') === id) { return false; }
+                }
+                var price = Number(item.price || 0).toFixed(2);
+
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                tr.innerHTML =
+                    '<td><input type="hidden" name="Rows[0].ItemId" value="' + esc(id) + '">' +
+                    '    <span>' + esc(item.cpjc) + '</span>' +
+                    '    <span class="text-secondary small d-block">' + esc(item.cpbm) + '</span></td>' +
+                    '<td class="text-secondary">' + esc(item.cpgg) + '</td>' +
+                    '<td class="text-secondary">' + esc(item.unit) + '</td>' +
+                    '<td><span class="badge bg-secondary-lt">' + esc(item.cplb) + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 sb-calc" name="Rows[0].Qty" value="0.00"></td>' +
+                    '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dec2 sb-calc" name="Rows[0].Price" value="' + price + '"></td>' +
+                    '<td><select class="form-select form-select-sm sb-calc sb-taxsel" name="Rows[0].TaxRateId">' + taxOptionsJson.join('') + '</select></td>' +
+                    '<td><span class="sb-amount text-secondary">0.00</span></td>' +
+                    '<td><span class="sb-tax text-secondary">0.00</span></td>' +
+                    '<td><span class="sb-afterprice text-secondary">0.00</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger sb-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+                return true;
+            }
+
+            function hasItemRow(itemId) {
+                var id = String(itemId);
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-itemid') === id) return true;
+                }
+                return false;
+            }
+
+            function loadPickList(done) {
+                var url = '/StockBill/ListItems?cplb=' + encodeURIComponent(pickCplb.value)
+                    + '&keyword=' + encodeURIComponent(pickKw.value.trim());
+                pickListBody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">正在加载商品…</td></tr>';
+                fetch(url)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderPickList(data); if (done) done(); })
+                    .catch(function (err) {
+                        console.error(err);
+                        pickListBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger py-4">加载失败，请重试</td></tr>';
+                    });
+            }
+
+            function renderPickList(items) {
+                if (!items || items.length === 0) {
+                    pickListBody.innerHTML = '<tr><td colspan="7" class="text-center text-secondary py-4">未找到匹配商品</td></tr>';
+                    if (pickModalHint) pickModalHint.textContent = '未找到匹配商品，可调整分类或关键字后重新查询';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < items.length; i++) {
+                    var p = items[i];
+                    var inBill = hasItemRow(p.id);
+                    h += '<tr data-payload="' + esc(JSON.stringify(p)).replace(/"/g, '&quot;') + '">'
+                        + '<td><input type="checkbox" class="pick-check"' + (inBill ? ' disabled checked' : '') + '></td>'
+                        + '<td class="text-secondary">' + esc(p.cpbm) + '</td>'
+                        + '<td>' + esc(p.cpjc) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.cpgg) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.unit) + '</td>'
+                        + '<td><span class="badge bg-secondary-lt">' + esc(p.cplb) + '</span></td>'
+                        + '<td class="text-end text-secondary">' + (Number(p.price) || 0).toFixed(2) + '</td>'
+                        + '</tr>';
+                }
+                pickListBody.innerHTML = h;
+                if (pickCheckAll) pickCheckAll.checked = false;
+                if (pickModalHint) pickModalHint.textContent = '共 ' + items.length + ' 个商品，灰色勾选行已在明细中（导入时自动跳过）';
+            }
+
+            function openPickModal() {
+                if (!itemModal) return;
+                pickKw.value = '';
+                pickCplb.value = '';
+                loadPickList();
+                itemModal.show();
+            }
+
+            var btnPickItems = document.getElementById('btnPickItems');
+            if (btnPickItems) btnPickItems.addEventListener('click', openPickModal);
+
+            var btnPickSearch = document.getElementById('btnPickSearch');
+            if (btnPickSearch) btnPickSearch.addEventListener('click', function () { loadPickList(); });
+
+            pickKw.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); loadPickList(); }
+            });
+
+            if (pickCplb) pickCplb.addEventListener('change', function () { loadPickList(); });
+
+            if (pickCheckAll) pickCheckAll.addEventListener('change', function () {
+                var boxes = pickListBody.querySelectorAll('input.pick-check');
+                for (var i = 0; i < boxes.length; i++) {
+                    if (!boxes[i].disabled) boxes[i].checked = pickCheckAll.checked;
+                }
+            });
+
+            var pickImportBtn = document.getElementById('btnPickImport');
+            if (pickImportBtn) pickImportBtn.addEventListener('click', function () {
+                var added = 0, skipped = 0;
+                var trs = pickListBody.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    var cb = trs[i].querySelector('.pick-check');
+                    if (!cb || !cb.checked || cb.disabled || !trs[i].dataset.payload) continue;
+                    try {
+                        var x = JSON.parse(trs[i].dataset.payload);
+                        if (addRow(x)) added++; else skipped++;
+                    } catch (err) { console.error(err); }
+                }
+                if (pickModalHint) {
+                    pickModalHint.textContent = '已添加 ' + added + ' 行' + (skipped > 0 ? ('，' + skipped + ' 行已在明细中跳过') : '') + '（可继续查询添加或关闭）';
+                }
+                // re-render the candidate list so rows already in the bill show as disabled-checked
+                loadPickList(function () {
+                    if (pickModalHint) {
+                        pickModalHint.textContent = '已添加 ' + added + ' 行' + (skipped > 0 ? ('，' + skipped + ' 行已在明细中跳过') : '') + '（可继续查询添加或关闭）';
+                    }
+                });
+            });
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('sb-del')) {
+                    e.target.closest('tr').remove();
+                    reindex();
+                }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

@@ -1,0 +1,44 @@
+@model GONES.Web.Models.ItemClassNode
+@{
+    var itemCount = (System.Collections.Generic.Dictionary<int, int>)ViewBag.ItemCount;
+    int count = itemCount.ContainsKey(Model.Id) ? itemCount[Model.Id] : 0;
+    var padding = 0.75 + Model.Depth * 1.1;
+}
+<li>
+    <div class="list-group-item d-flex align-items-center flex-wrap gap-2" style="padding-left: @(padding)rem;">
+        <span class="me-auto">
+            @Model.Name
+            @if (count > 0)
+            {
+                <span class="badge bg-secondary-lt ms-1">@count</span>
+            }
+            @if (!Model.Enabled)
+            {
+                <span class="badge bg-red-lt ms-1">停用</span>
+            }
+        </span>
+        <span class="btn-list flex-nowrap">
+            @if (Model.Level < 3)
+            {
+                <a class="btn btn-sm btn-outline-primary py-0" href="/PmsItemClass/Create?parentId=@Model.Id">加子类</a>
+            }
+            @if (Model.Level > 1)
+            {
+                <a class="btn btn-sm btn-outline-azure py-0" href="/PmsItem?classId=@Model.Id">看商品</a>
+                <a class="btn btn-sm btn-outline-secondary py-0" href="/PmsItemClass/Edit/@Model.Id">编辑</a>
+                <form asp-action="Delete" asp-route-id="@Model.Id" method="post" class="d-inline"
+                      data-confirm=""
+                      data-confirm-title="删除商品分类"
+                      data-confirm-message="确定删除分类“@Model.Name”吗？（有子类别或商品时会被拒绝）"
+                      data-confirm-yes="确定删除"
+                      data-confirm-yes-class="btn-danger">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0">删除</button>
+                </form>
+            }
+        </span>
+    </div>
+</li>
+@foreach (var child in Model.Children)
+{
+    @await Html.PartialAsync("_TreeNode", child)
+}

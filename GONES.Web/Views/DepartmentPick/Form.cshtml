@@ -1,0 +1,726 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model DepartmentPickEditViewModel
+@{
+    ViewBag.Title = "部门领料单维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var createrName = (string)ViewBag.CreaterName;
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+    var rows = Model.Rows ?? new List<DepartmentPickRowInput>();
+
+    // Single source of truth for row field names. Must match DepartmentPickRowInput properties
+    // and the addRow template below; reindex() uses this list to renumber after add/delete.
+    // NOTE: reindex uses [name$=".Field"] (dot prefix) -- fields here are suffixes of each
+    // other (OutNum vs ...), so a bare suffix match would rename the wrong inputs.
+    var rowFields = new[] {
+        "ItemId","Cpbm","ProductName","Spec","CategoryName","Unit",
+        "StepId","BatchStock","OutNum","BatchNo","WarehouseName","Note"
+    };
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看部门领料单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/DepartmentPick">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@(readOnly ? "" : (isNew ? "/DepartmentPick/Create" : "/DepartmentPick/Edit/" + Model.InterId))">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">出库单号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">出库日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">摘要</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label required">领料部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">领料车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">领料人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">出库明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            @if (!readOnly)
+            {
+            <div class="row g-2 mb-3 align-items-center">
+                <div class="col-auto">
+                    <button type="button" class="btn btn-primary" id="btnPickItem">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                            <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                        </svg>
+                        添加商品
+                    </button>
+                </div>
+                <div class="col-auto">
+                    <div class="form-hint mb-0">点「添加商品」默认列出本仓库商品（支持关键字过滤）；选定商品后在弹窗下方填工序、数量、批号、备注，「确定」加入明细行。</div>
+                </div>
+            </div>
+            }
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:10%;">产品代码</th>
+                            <th style="width:13%;">产品名称</th>
+                            <th style="width:9%;" class="text-secondary">规格型号</th>
+                            <th style="width:8%;" class="text-secondary">产品分类</th>
+                            <th style="width:5%;" class="text-secondary">单位</th>
+                            <th style="width:8%;" class="text-secondary">工序</th>
+                            <th style="width:8%;" class="text-end text-secondary">批次库存</th>
+                            <th style="width:9%;">出库数量</th>
+                            <th style="width:11%;">批号</th>
+                            <th style="width:9%;" class="text-secondary">仓库名称</th>
+                            <th style="width:7%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="wkBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            <tr data-itemid="@r.ItemId">
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <input type="hidden" name="Rows[@ri].Cpbm" value="@r.Cpbm" />
+                                    <input type="hidden" name="Rows[@ri].ProductName" value="@r.ProductName" />
+                                    <input type="hidden" name="Rows[@ri].Spec" value="@r.Spec" />
+                                    <input type="hidden" name="Rows[@ri].CategoryName" value="@r.CategoryName" />
+                                    <input type="hidden" name="Rows[@ri].Unit" value="@r.Unit" />
+                                    <input type="hidden" name="Rows[@ri].StepId" value="@r.StepId" />
+                                    <input type="hidden" name="Rows[@ri].BatchStock" value="@((r.BatchStock ?? 0m).ToString("0.######"))" />
+                                    <input type="hidden" name="Rows[@ri].WarehouseName" value="@r.WarehouseName" />
+                                    <span class="wk-cpbm">@r.Cpbm</span>
+                                </td>
+                                <td><span class="wk-productname">@r.ProductName</span></td>
+                                <td class="text-secondary"><span class="wk-spec">@r.Spec</span></td>
+                                <td><span class="badge bg-secondary-lt wk-cat">@r.CategoryName</span></td>
+                                <td class="text-secondary"><span class="wk-unit">@r.Unit</span></td>
+                                <td class="text-secondary"><span class="wk-stepname">@r.StepName</span></td>
+                                <td class="text-end text-secondary"><span class="wk-batchstock">@((r.BatchStock ?? 0m).ToString("0.######"))</span></td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[@ri].OutNum" value="@((r.OutNum ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="text" class="form-control form-control-sm wk-batchno" name="Rows[@ri].BatchNo" value="@r.BatchNo" placeholder="批号" @(readOnly ? "disabled" : "") /></td>
+                                <td class="text-secondary"><span class="wk-warehouse">@r.WarehouseName</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>
+                                    @if (!readOnly)
+                                    {
+                                        <button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button>
+                                    }
+                                </td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary">保存部门领料单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<div class="modal modal-blur fade" id="itemModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">选择商品</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-3">
+                    <div class="col-md-9">
+                        <input type="text" class="form-control" id="itemSearch" placeholder="输入 商品编码 / 名称 / 规格 / 拼音 搜索" autocomplete="off">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="button" class="btn btn-outline-primary w-100" id="btnItemSearch">搜索</button>
+                    </div>
+                </div>
+                <div class="table-responsive" style="max-height:300px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th>产品代码</th>
+                                <th>产品名称</th>
+                                <th class="text-secondary">规格</th>
+                                <th class="text-secondary">分类</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="w-1"></th>
+                            </tr>
+                        </thead>
+                        <tbody id="itemListBody">
+                            <tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card card-sm mt-3 d-none" id="pickEntry">
+                    <div class="card-body">
+                        <div class="mb-2">
+                            <span class="text-secondary">已选商品：</span>
+                            <span class="fw-bold" id="mProductName">—</span>
+                            <span class="text-secondary ms-2" id="mProductSpec"></span>
+                        </div>
+                        <div class="row g-2 align-items-end">
+                            <div class="col-md-3">
+                                <label class="form-label mb-1">工序</label>
+                                <select class="form-select form-select-sm" id="mStep">
+                                    <option value="">-- 不指定 --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-1 required">领用数量</label>
+                                <input type="number" step="0.01" min="0" class="form-control form-control-sm text-end" id="mNum" placeholder="0.00">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-1">选择批号</label>
+                                <select class="form-select form-select-sm" id="mBatch">
+                                    <option value="">-- 不指定 --</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label mb-1">备注</label>
+                                <input type="text" class="form-control form-control-sm" id="mNote" placeholder="选填">
+                            </div>
+                            <div class="col-12 text-end">
+                                <button type="button" class="btn btn-primary btn-sm" id="btnConfirmRow">确定</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="itemModalHint">点击商品行选定商品，在下方填写数量与批号后「确定」加入明细；可多次添加（不同批号）</span>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('wkBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var itemModalEl = document.getElementById('itemModal');
+            var itemSearch = document.getElementById('itemSearch');
+            var itemListBody = document.getElementById('itemListBody');
+            var itemModalHint = document.getElementById('itemModalHint');
+            var pickEntry = document.getElementById('pickEntry');
+            var mProductName = document.getElementById('mProductName');
+            var mProductSpec = document.getElementById('mProductSpec');
+            var mStep = document.getElementById('mStep');
+            var mNum = document.getElementById('mNum');
+            var mBatch = document.getElementById('mBatch');
+            var mNote = document.getElementById('mNote');
+            var itemTimer = 0;
+            var itemModal = (typeof bootstrap !== 'undefined' && itemModalEl)
+                ? new bootstrap.Modal(itemModalEl) : null;
+            var stepsCache = null;      // t_PMS_Step options, lazy-loaded once
+            var selectedItem = null;    // product row currently picked in the modal
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var managerSel = document.getElementById('ManagerId');
+
+            var ROW_FIELDS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(rowFields).Replace("</", "<\\/"));
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) { fillOptions(workShopSel, [], '-- 不指定 --'); return; }
+                fetch('/DepartmentPick/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId) {
+                if (!workShopId) { fillOptions(managerSel, [], '-- 不指定 --'); return; }
+                fetch('/DepartmentPick/GetManagers?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = ''; managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(id);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() { if (rowCount) rowCount.textContent = body.rows.length + ' 行'; }
+
+            function reindex() {
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < ROW_FIELDS.length; k++) {
+                        // dot prefix is mandatory: bare suffix matching would also hit
+                        // fields that merely end with the same letters
+                        var el = trs[i].querySelector('[name$=".' + ROW_FIELDS[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + ROW_FIELDS[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            // Batch-number dropdown: clicking the input pops a visible list of the
+            // item's in-stock batches (batch no + derived stock). Picking one fills
+            // the value and refreshes 批次库存 / 仓库名称. Manual typing still allowed.
+            if (!document.getElementById('batchDropStyle')) {
+                var st = document.createElement('style');
+                st.id = 'batchDropStyle';
+                st.textContent =
+                    '.batch-drop{position:absolute;z-index:2000;background:#fff;border:1px solid rgba(0,0,0,.12);' +
+                    'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.14);padding:4px;max-height:240px;overflow:auto;}' +
+                    '.batch-drop-hint{font-size:.72rem;color:#6c757d;padding:4px 8px;}' +
+                    '.batch-drop-item{display:flex;width:100%;align-items:center;gap:12px;border:0;background:transparent;' +
+                    'padding:6px 8px;border-radius:4px;font-size:.85rem;text-align:left;cursor:pointer;}' +
+                    '.batch-drop-item:hover{background:rgba(var(--tblr-primary-rgb,13,110,253),.08);}' +
+                    '.batch-drop-qty{margin-left:auto;color:#6c757d;font-variant-numeric:tabular-nums;}';
+                document.head.appendChild(st);
+            }
+            var batchCache = {};
+            var batchPanel = null;
+
+            function fetchBatches(itemId, cb) {
+                if (batchCache[itemId]) { cb(batchCache[itemId]); return; }
+                fetch('/DepartmentPick/GetItemBatches?itemId=' + itemId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (rows) { batchCache[itemId] = rows || []; cb(batchCache[itemId]); })
+                    .catch(function (err) { console.error(err); cb([]); });
+            }
+
+            function closeBatchPanel() {
+                if (batchPanel) { batchPanel.remove(); batchPanel = null; }
+            }
+
+            function openBatchPanel(input) {
+                var tr = input.closest('tr');
+                var itemId = tr ? tr.getAttribute('data-itemid') : null;
+                if (!itemId || itemId === '0') return;
+                closeBatchPanel();
+                batchPanel = document.createElement('div');
+                batchPanel.className = 'batch-drop';
+                document.body.appendChild(batchPanel);
+                var rect = input.getBoundingClientRect();
+                batchPanel.style.left = (rect.left + window.scrollX) + 'px';
+                batchPanel.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+                batchPanel.style.minWidth = Math.max(rect.width, 200) + 'px';
+                batchPanel.innerHTML = '<div class="batch-drop-hint">在库批次（点击选择）</div><div class="batch-drop-hint">加载中…</div>';
+                fetchBatches(itemId, function (rows) {
+                    if (!batchPanel) return;
+                    if (!rows.length) {
+                        batchPanel.innerHTML = '<div class="batch-drop-hint">该商品无在库批次，可手动输入</div>';
+                        return;
+                    }
+                    var h = '<div class="batch-drop-hint">在库批次（点击选择）</div>';
+                    for (var i = 0; i < rows.length; i++) {
+                        h += '<button type="button" class="batch-drop-item" data-bn="' + esc(rows[i].batchNo) + '">' +
+                             '<span>' + esc(rows[i].batchNo) + '</span>' +
+                             '<span class="batch-drop-qty">' + (Number(rows[i].qty) || 0) + '</span></button>';
+                    }
+                    batchPanel.innerHTML = h;
+                    var items = batchPanel.querySelectorAll('.batch-drop-item');
+                    for (var j = 0; j < items.length; j++) {
+                        items[j].addEventListener('click', function () {
+                            input.value = this.getAttribute('data-bn');
+                            closeBatchPanel();
+                            refreshBatchInfo(input.closest('tr'));
+                        });
+                    }
+                });
+            }
+
+            body.addEventListener('focus', function (e) {
+                if (e.target.classList && e.target.classList.contains('wk-batchno')) openBatchPanel(e.target);
+            }, true);
+            document.addEventListener('mousedown', function (e) {
+                if (!batchPanel) return;
+                if (batchPanel.contains(e.target)) return;
+                if (e.target.classList && e.target.classList.contains('wk-batchno')) return;
+                closeBatchPanel();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') closeBatchPanel();
+            });
+
+            // When a row's BatchNo changes, refresh the row's 批次库存 / 仓库名称 display
+            // and hidden inputs.
+            function refreshBatchInfo(tr) {
+                var bnInput = tr.querySelector('[name$=".BatchNo"]');
+                if (!bnInput) return;
+                var bn = String(bnInput.value || '').trim();
+                if (!bn) return;
+                fetch('/DepartmentPick/GetBatchInfo?batchNo=' + encodeURIComponent(bn))
+                    .then(function (r) { return r.json(); })
+                    .then(function (d) {
+                        var bs = tr.querySelector('[name$=".BatchStock"]');
+                        var wn = tr.querySelector('[name$=".WarehouseName"]');
+                        var bsSpan = tr.querySelector('.wk-batchstock');
+                        var wnSpan = tr.querySelector('.wk-warehouse');
+                        if (bs) bs.value = (d.batchStock || 0);
+                        if (wn) wn.value = d.warehouseName || '';
+                        if (bsSpan) bsSpan.textContent = (Number(d.batchStock) || 0).toString();
+                        if (wnSpan) wnSpan.textContent = d.warehouseName || '';
+                    })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+                if (e.target.classList.contains('wk-batchno')) refreshBatchInfo(e.target.closest('tr'));
+            }, true);
+            // datalist selection fires 'change' without blur -- refresh immediately
+            body.addEventListener('change', function (e) {
+                if (e.target.classList && e.target.classList.contains('wk-batchno')) refreshBatchInfo(e.target.closest('tr'));
+            }, true);
+
+            function addRow(item) {
+                var id = String(item.id || item.itemId || 0);
+                if (!id || id === '0') return;
+                var batchStock = Number(item.batchStock || 0) || 0;
+                var batchNo = item.batchNo || '';
+                var warehouseName = item.warehouseName || '';
+                var stepId = String(item.stepId || 0);
+                var stepName = item.stepName || '';
+                var outNum = Number(item.outNum);
+                var outNumVal = isNaN(outNum) ? '0.00' : outNum.toFixed(2);
+                var noteVal = item.note || '';
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-itemid', id);
+                // Hidden-only fields: display cells are plain <span>s, so the value travels
+                // in a hidden input. OutNum / BatchNo / Note are real <input>s below and
+                // MUST NOT be duplicated here -- two inputs sharing one name make ASP.NET
+                // model binding fail.
+                var fields = [
+                    ['ItemId', id],
+                    ['Cpbm', item.cpbm || ''],
+                    ['ProductName', item.cpjc || ''],
+                    ['Spec', item.cpgg || ''],
+                    ['CategoryName', item.cplb || ''],
+                    ['Unit', item.unit || ''],
+                    ['StepId', stepId],
+                    ['BatchStock', String(batchStock)],
+                    ['WarehouseName', warehouseName],
+                ];
+                var hiddenHtml = '';
+                for (var i = 0; i < fields.length; i++) {
+                    hiddenHtml += '<input type="hidden" name="Rows[0].' + fields[i][0] + '" value="' + esc(fields[i][1]) + '">';
+                }
+                tr.innerHTML =
+                    '<td>' + hiddenHtml + '<span class="wk-cpbm">' + esc(item.cpbm) + '</span></td>' +
+                    '<td><span class="wk-productname">' + esc(item.cpjc) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-spec">' + esc(item.cpgg) + '</span></td>' +
+                    '<td><span class="badge bg-secondary-lt wk-cat">' + esc(item.cplb) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-unit">' + esc(item.unit) + '</span></td>' +
+                    '<td class="text-secondary"><span class="wk-stepname">' + esc(stepName) + '</span></td>' +
+                    '<td class="text-end text-secondary"><span class="wk-batchstock">' + batchStock + '</span></td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 text-end" name="Rows[0].OutNum" value="' + outNumVal + '"></td>' +
+                    '<td><input type="text" class="form-control form-control-sm wk-batchno" name="Rows[0].BatchNo" value="' + esc(batchNo) + '"></td>' +
+                    '<td class="text-secondary"><span class="wk-warehouse">' + esc(warehouseName) + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value="' + esc(noteVal) + '"></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger wk-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+            }
+
+            // ---------------------------------------------------------------- item picker modal
+
+            function renderItemList(list) {
+                if (!list || list.length === 0) {
+                    itemListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">未找到匹配的商品</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var it = list[i];
+                    h += '<tr>' +
+                        '<td class="text-secondary">' + esc(it.cpbm) + '</td>' +
+                        '<td>' + esc(it.cpjc) + '</td>' +
+                        '<td class="text-secondary">' + esc(it.cpgg) + '</td>' +
+                        '<td><span class="badge bg-secondary-lt">' + esc(it.cplb) + '</span></td>' +
+                        '<td class="text-secondary">' + esc(it.unit) + '</td>' +
+                        '<td><button type="button" class="btn btn-sm btn-outline-primary item-pick">选择</button></td>' +
+                        '</tr>';
+                }
+                itemListBody.innerHTML = h;
+                // attach raw payloads for addRow (dataset survives because we set it after innerHTML)
+                var trs = itemListBody.querySelectorAll('tr');
+                for (var j = 0; j < trs.length && j < list.length; j++) {
+                    trs[j].dataset.payload = JSON.stringify(list[j]);
+                }
+            }
+
+            function loadItemList(kw) {
+                itemListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-4">加载中…</td></tr>';
+                // kw 为空 = 默认列出本仓库全部启用商品（服务端受数据闸门②收窄）。
+                fetch('/DepartmentPick/SearchItems' + (kw ? '?keyword=' + encodeURIComponent(kw) : ''))
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderItemList(data); })
+                    .catch(function (err) {
+                        console.error(err);
+                        itemListBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-4">加载失败</td></tr>';
+                    });
+            }
+
+            // Step dictionary for the modal dropdown (lazy, once).
+            function ensureSteps(cb) {
+                if (stepsCache) { cb(); return; }
+                fetch('/DepartmentPick/GetSteps')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        stepsCache = data || [];
+                        if (mStep) {
+                            mStep.innerHTML = '<option value="">-- 不指定 --</option>';
+                            for (var i = 0; i < stepsCache.length; i++) {
+                                var opt = document.createElement('option');
+                                opt.value = stepsCache[i].id;
+                                opt.textContent = stepsCache[i].name;
+                                mStep.appendChild(opt);
+                            }
+                        }
+                        cb();
+                    })
+                    .catch(function (err) { console.error(err); cb(); });
+            }
+
+            // In-stock batches of the selected item -> 批号 dropdown (option carries data-qty).
+            function loadBatchOptions(itemId) {
+                if (!mBatch) return;
+                mBatch.innerHTML = '<option value="">-- 不指定 --</option>';
+                fetch('/DepartmentPick/GetItemBatches?itemId=' + itemId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (rows) {
+                        rows = rows || [];
+                        for (var i = 0; i < rows.length; i++) {
+                            var opt = document.createElement('option');
+                            opt.value = rows[i].batchNo;
+                            opt.textContent = rows[i].batchNo + '（库存 ' + (Number(rows[i].qty) || 0) + '）';
+                            opt.setAttribute('data-qty', Number(rows[i].qty) || 0);
+                            mBatch.appendChild(opt);
+                        }
+                    })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            // Clicking a product row selects it and opens the entry area below the list.
+            function selectProduct(tr) {
+                if (!tr || !tr.dataset.payload) return;
+                var item;
+                try { item = JSON.parse(tr.dataset.payload); }
+                catch (err) { console.error(err); return; }
+                selectedItem = item;
+                var trs = itemListBody.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) trs[i].classList.remove('table-active');
+                tr.classList.add('table-active');
+                if (mProductName) mProductName.textContent = (item.cpbm ? item.cpbm + ' ' : '') + (item.cpjc || '');
+                if (mProductSpec) mProductSpec.textContent = item.cpgg || '';
+                if (mStep) mStep.value = '';
+                if (mNum) mNum.value = '';
+                if (mNote) mNote.value = '';
+                if (pickEntry) pickEntry.classList.remove('d-none');
+                loadBatchOptions(parseInt(item.id, 10) || 0);
+                if (mNum) mNum.focus();
+            }
+
+            if (itemListBody) {
+                itemListBody.addEventListener('click', function (e) {
+                    var tr = e.target.closest('#itemListBody tr');
+                    if (tr && tr.dataset.payload) selectProduct(tr);
+                });
+            }
+
+            // 确定 -> validate qty -> append the row to the detail table; keep the modal
+            // open with the same product selected for repeat adding (different batches).
+            function confirmRow() {
+                if (!selectedItem) return;
+                var qty = mNum ? parseFloat(mNum.value) : NaN;
+                if (!(qty > 0)) {
+                    if (itemModalHint) itemModalHint.textContent = '请先填写领用数量（须大于 0）';
+                    if (mNum) mNum.focus();
+                    return;
+                }
+                var stepId = (mStep && mStep.value) ? parseInt(mStep.value, 10) || 0 : 0;
+                var stepName = (stepId > 0 && mStep.selectedIndex >= 0) ? mStep.options[mStep.selectedIndex].textContent : '';
+                var batchNo = (mBatch && mBatch.value) || '';
+                var batchStock = (batchNo && mBatch.selectedIndex >= 0)
+                    ? (Number(mBatch.options[mBatch.selectedIndex].getAttribute('data-qty')) || 0) : 0;
+                addRow({
+                    id: selectedItem.id, cpbm: selectedItem.cpbm, cpjc: selectedItem.cpjc,
+                    cpgg: selectedItem.cpgg, cplb: selectedItem.cplb, unit: selectedItem.unit,
+                    warehouseName: selectedItem.warehouseName || '',
+                    stepId: stepId, stepName: stepName,
+                    batchNo: batchNo, batchStock: batchStock,
+                    outNum: qty, note: (mNote && mNote.value) || '',
+                });
+                if (itemModalHint) itemModalHint.textContent = '已添加「' + (selectedItem.cpjc || '') + '」到出库明细（可继续添加或关闭）';
+                if (mNum) mNum.value = '';
+                if (mBatch) mBatch.value = '';
+                if (mNote) mNote.value = '';
+                if (mNum) mNum.focus();
+            }
+            var btnConfirmRow = document.getElementById('btnConfirmRow');
+            if (btnConfirmRow) btnConfirmRow.addEventListener('click', confirmRow);
+            if (mNum) mNum.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmRow(); } });
+            if (mNote) mNote.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmRow(); } });
+
+            var pickBtn = document.getElementById('btnPickItem');
+            if (pickBtn) {
+                pickBtn.addEventListener('click', function () {
+                    if (itemSearch) itemSearch.value = '';
+                    selectedItem = null;
+                    if (pickEntry) pickEntry.classList.add('d-none');
+                    if (itemModalHint) itemModalHint.textContent = '点击商品行选定商品，在下方填写数量与批号后「确定」加入明细；可多次添加（不同批号）';
+                    if (itemModal) itemModal.show();
+                    ensureSteps(function () { loadItemList(''); });   // 默认列出本仓库商品
+                });
+            }
+            if (itemSearch) {
+                itemSearch.addEventListener('input', function () {
+                    clearTimeout(itemTimer);
+                    var kw = this.value.trim();
+                    itemTimer = setTimeout(function () { loadItemList(kw); }, 300);
+                });
+                itemSearch.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') { e.preventDefault(); loadItemList(itemSearch.value.trim()); }
+                });
+            }
+            var itemSearchBtn = document.getElementById('btnItemSearch');
+            if (itemSearchBtn) {
+                itemSearchBtn.addEventListener('click', function () {
+                    loadItemList(itemSearch ? itemSearch.value.trim() : '');
+                });
+            }
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList.contains('wk-del')) { e.target.closest('tr').remove(); reindex(); }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

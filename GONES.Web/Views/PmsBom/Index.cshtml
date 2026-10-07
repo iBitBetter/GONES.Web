@@ -1,0 +1,324 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@{
+    ViewBag.Title = "BOM清单设置";
+    var steps = (List<t_PMS_Step>)ViewBag.Steps;
+    var stepId = (int)ViewBag.StepId;
+    var summaries = (List<BomSummary>)ViewBag.Summaries;
+    var stepCounts = (Dictionary<int, int>)ViewBag.StepCounts;
+    var totalBomCount = (int)ViewBag.TotalBomCount;
+    var curStep = stepId > 0 ? steps.FirstOrDefault(s => s.FItemID == stepId) : null;
+}
+
+@* BOM 明细网格样式：对齐旧 WinForms 分组网格（组头行 + 密集明细行）。列口径见 Models/BomDetailRow.cs *@
+<style>
+    .bom-grid {
+        font-size: .8125rem;
+    }
+
+    .bom-grid > tbody > tr.bom-group > td {
+        background-color: var(--tblr-tertiary-bg, #f3f4f6);
+        padding-top: .35rem;
+        padding-bottom: .35rem;
+        vertical-align: middle;
+    }
+
+    .bom-grid > tbody > tr.bom-group-off > td {
+        background-color: #fbe9e9;
+    }
+
+    .bom-grid > tbody > tr.bom-detail > td {
+        padding-top: .2rem;
+        padding-bottom: .2rem;
+        vertical-align: middle;
+    }
+
+    .bom-toggle {
+        border: 0;
+        background: none;
+        padding: 0 .4rem 0 0;
+        line-height: 1;
+        color: var(--tblr-secondary, #6b7280);
+    }
+
+    .bom-toggle svg {
+        transition: transform .12s ease;
+    }
+
+    .bom-toggle.collapsed svg {
+        transform: rotate(-90deg);
+    }
+
+    /* 只读指示：不让 disabled 把勾选框灰掉（旧网格里就是一个普通勾选框） */
+    .bom-check:disabled {
+        opacity: 1;
+    }
+</style>
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            @if (stepId > 0)
+            {
+                <a class="btn btn-primary" href="/PmsBom/Create?stepId=@stepId">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                        <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                    </svg>
+                    新增BOM清单
+                </a>
+            }
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="row">
+    <div class="col-lg-3">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">工序</h3>
+                <div class="card-actions">
+                    <span class="badge bg-azure-lt">@steps.Count 个</span>
+                </div>
+            </div>
+            <div class="card-body p-2">
+                <input id="stepSearch" class="form-control form-control-sm mb-2" placeholder="搜索工序…" autocomplete="off" />
+            </div>
+            <div class="list-group list-group-flush" id="stepList" style="max-height: 60vh; overflow-y: auto;">
+                <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center @(stepId == 0 ? "active" : "")"
+                   href="/PmsBom?stepId=0" data-name="所有工序">
+                    <span class="text-truncate" style="max-width: 70%;">所有工序</span>
+                    <span class="badge bg-azure-lt ms-1">@totalBomCount</span>
+                </a>
+                @foreach (var s in steps)
+                {
+                    var cnt = stepCounts.ContainsKey(s.FItemID) ? stepCounts[s.FItemID] : 0;
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center @(stepId == s.FItemID ? "active" : "")"
+                       href="/PmsBom?stepId=@s.FItemID" data-name="@s.FName">
+                        <span class="text-truncate" style="max-width: 70%;">@s.FName</span>
+                        <span class="badge bg-azure-lt ms-1">@cnt</span>
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-9">
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <h3 class="card-title">
+                        @if (curStep != null)
+                        {
+                            <span>@curStep.FName</span>
+                            <span class="text-secondary ms-2">工序 @curStep.FItemID</span>
+                        }
+                        else
+                        {
+                            <span>所有工序</span>
+                        }
+                    </h3>
+                    <div class="text-secondary">
+                        @if (curStep != null)
+                        {
+                            <span>类型 @curStep.FType ｜ 算法 @curStep.FAlgo ｜ 基准量 @(curStep.FNum ?? 0) @curStep.FLossUnit</span>
+                        }
+                        else
+                        {
+                            <span>全部工序的 BOM 清单，点左侧工序可筛选。</span>
+                        }
+                    </div>
+                </div>
+                @if (summaries.Count > 0)
+                {
+                    <div class="card-actions">
+                        <span class="text-secondary me-2">共 @summaries.Count 张 / @summaries.Sum(m => m.Details.Count) 行明细</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="bomExpandAll">展开全部</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-1" id="bomCollapseAll">折叠全部</button>
+                    </div>
+                }
+            </div>
+            <div class="table-responsive">
+                <table class="table table-vcenter card-table table-sm text-nowrap table-hover bom-grid">
+                    <thead>
+                        <tr>
+                            <th style="width: 4%;">单号</th>
+                            <th class="text-center" style="width: 3%;" title="勾选 = 该行为入库（产出）方向，与 BOM 表单里的勾选同一列 FIsProduct">入库</th>
+                            <th>产品代码</th>
+                            <th>商品分类</th>
+                            <th>名称</th>
+                            <th>规格型号</th>
+                            <th>单位</th>
+                            <th class="text-end">库存数量</th>
+                            <th>存放仓库</th>
+                            <th class="text-end">基本用量</th>
+                            <th>工序名称</th>
+                            <th>备注</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (summaries.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="12" class="text-center text-secondary py-4">
+                                    @(stepId > 0 ? "该工序下还没有 BOM 清单，点右上角「新增BOM清单」创建。" : "系统中还没有 BOM 清单。")
+                                </td>
+                            </tr>
+                        }
+                        else
+                        {
+                            foreach (var m in summaries)
+                            {
+                                var gid = "bom-g" + m.BomId;
+                                @* 分组标题行：单号 / 产出品 / 行数 / 状态 / 操作 —— 对应旧网格的 group row *@
+                                <tr class="bom-group @(m.Disabled ? "bom-group-off" : "")" data-bom="@m.BomId">
+                                    <td colspan="12">
+                                        <div class="d-flex align-items-center flex-wrap">
+                                            <button type="button" class="bom-toggle" data-target="@gid"
+                                                    title="折叠 / 展开该单明细" aria-label="折叠或展开该单明细">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M6 9l6 6l6 -6" />
+                                                </svg>
+                                            </button>
+                                            <span class="fw-bold me-3">BomID: @m.BomId</span>
+                                            <span class="me-3">
+                                                产出品：
+                                                @if (string.IsNullOrEmpty(m.OutputName))
+                                                {
+                                                    <span class="text-danger">产出品缺失</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="@(m.OutputStopped ? "text-danger" : "")">@m.OutputName</span>
+                                                    <span class="text-secondary">@m.OutputCpbm</span>
+                                                }
+                                            </span>
+                                            <span class="text-secondary me-3">明细 @m.Details.Count 行（入库 @m.InCount / 出库 @m.OutCount）</span>
+                                            @if (!string.IsNullOrEmpty(m.OutputClass))
+                                            {
+                                                <span class="badge bg-green-lt me-3">@m.OutputClass</span>
+                                            }
+                                            <span class="badge @(m.Disabled ? "bg-red-lt" : "bg-green-lt") me-3">@(m.Disabled ? "已禁用" : "正常")</span>
+                                            <div class="btn-list flex-nowrap ms-auto">
+                                                <a class="btn btn-sm btn-outline-secondary py-0" href="/PmsBom/Edit/@m.BomId">修改</a>
+                                                <a class="btn btn-sm btn-outline-secondary py-0" href="/PmsBom/Copy/@m.BomId">复制</a>
+                                                @if (m.Disabled)
+                                                {
+                                                    <form asp-action="Enable" asp-route-id="@m.BomId" method="post" class="d-inline"
+                                                          data-confirm=""
+                                                          data-confirm-title="启用BOM清单"
+                                                          data-confirm-message="确定重新启用 BOM 清单（单号 @m.BomId）吗？启用后将重新出现在要货/生产的选择列表中。"
+                                                          data-confirm-yes="确定启用"
+                                                          data-confirm-yes-class="btn-success">
+                                                        <button type="submit" class="btn btn-sm btn-outline-success py-0">启用</button>
+                                                    </form>
+                                                }
+                                                else
+                                                {
+                                                    <form asp-action="Disable" asp-route-id="@m.BomId" method="post" class="d-inline"
+                                                          data-confirm=""
+                                                          data-confirm-title="禁用BOM清单"
+                                                          data-confirm-message="确定禁用 BOM 清单（单号 @m.BomId）吗？禁用后不再出现在要货/生产的选择列表中，历史单据不受影响。"
+                                                          data-confirm-yes="确定禁用"
+                                                          data-confirm-yes-class="btn-warning">
+                                                        <button type="submit" class="btn btn-sm btn-outline-warning py-0">禁用</button>
+                                                    </form>
+                                                }
+                                                <form asp-action="Delete" asp-route-id="@m.BomId" method="post" class="d-inline"
+                                                      data-confirm=""
+                                                      data-confirm-title="删除BOM清单"
+                                                      data-confirm-message="确定删除 BOM 清单（单号 @m.BomId）吗？该单下所有明细都会被删除。已被要货/生产/库存单据引用的 BOM 不允许删除，请改用「禁用」。"
+                                                      data-confirm-yes="确定删除"
+                                                      data-confirm-yes-class="btn-danger">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0">删除</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                @* 明细行：与旧网格同列（产品代码/分类/名称/规格/单位/库存/仓库/用量/工序/备注） *@
+                                foreach (var r in m.Details)
+                                {
+                                    <tr class="bom-detail @gid @(m.Disabled ? "text-secondary" : "")" data-bom="@m.BomId">
+                                        <td class="text-secondary">@m.BomId</td>
+                                        <td class="text-center">
+                                            <input type="checkbox" class="form-check-input bom-check" disabled tabindex="-1"
+                                                   title="@(r.IsProduct ? "入库（产出）" : "出库（投入）")"
+                                                   @(r.IsProduct ? "checked" : null) />
+                                        </td>
+                                        <td>@r.Cpbm</td>
+                                        <td>@r.Cplb</td>
+                                        <td class="@(r.Stopped ? "text-danger" : "")">@r.Cpjc</td>
+                                        <td>@r.Cpgg</td>
+                                        <td>@r.Unit</td>
+                                        <td class="text-end">@(r.StockNum.ToString("0.00"))</td>
+                                        <td>@r.WarehouseName</td>
+                                        <td class="text-end">@(r.BaseNum.ToString("0.######"))</td>
+                                        <td>@r.StepName</td>
+                                        <td class="text-secondary">@r.Remark</td>
+                                    </tr>
+                                }
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <div class="card-footer text-secondary">
+                共 @summaries.Count 张 BOM 清单 ｜ @summaries.Sum(m => m.Details.Count) 条明细行
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('stepSearch').addEventListener('input', function () {
+            var kw = this.value.trim().toLowerCase();
+            var links = document.querySelectorAll('#stepList a');
+            for (var i = 0; i < links.length; i++) {
+                var name = (links[i].getAttribute('data-name') || links[i].textContent || '').toLowerCase();
+                links[i].style.display = (!kw || name.indexOf(kw) >= 0) ? '' : 'none';
+            }
+        });
+
+        // ── BOM 明细网格：按单号折叠 / 展开（默认全展开，与旧 WinForms AutoExpandAllGroups 一致）──
+        (function () {
+            function setGroup(gid, show) {
+                var rows = document.querySelectorAll('tr.bom-detail.' + gid);
+                for (var i = 0; i < rows.length; i++) rows[i].classList.toggle('d-none', !show);
+                var btn = document.querySelector('.bom-toggle[data-target="' + gid + '"]');
+                if (btn) btn.classList.toggle('collapsed', !show);
+            }
+            var toggles = document.querySelectorAll('.bom-toggle');
+            for (var i = 0; i < toggles.length; i++) {
+                toggles[i].addEventListener('click', function () {
+                    var gid = this.getAttribute('data-target');
+                    var first = document.querySelector('tr.bom-detail.' + gid);
+                    setGroup(gid, first ? first.classList.contains('d-none') : true);
+                });
+            }
+            var ea = document.getElementById('bomExpandAll');
+            if (ea) {
+                ea.addEventListener('click', function () {
+                    for (var i = 0; i < toggles.length; i++) setGroup(toggles[i].getAttribute('data-target'), true);
+                });
+            }
+            var ca = document.getElementById('bomCollapseAll');
+            if (ca) {
+                ca.addEventListener('click', function () {
+                    for (var i = 0; i < toggles.length; i++) setGroup(toggles[i].getAttribute('data-target'), false);
+                });
+            }
+        })();
+    </script>
+}

@@ -1,0 +1,66 @@
+@*
+    生产进销存情况统计 —— 单行（商品行 / 批次行共用一套 22 列）。
+    层级判定：Batches != null → 商品行（小计，带展开开关）；Batches == null → 批次行（明细）。
+    商品行渲染完自身后，递归渲染其批次明细行（深度恒为 1）。
+*@
+@model GONES.Web.Models.StockStatRow
+@{
+    var isBatch = Model.Batches == null;
+    string T(decimal v) => v.ToString("0.####");
+    string M(decimal v) => v.ToString("0.00");
+    // 批次剩余 vs 账面结存：两口径并排（用户裁定 2026-09-11），不等即缓存漂移 → 红色加粗自行暴露
+    var drift = Model.BatchClosing.HasValue && Math.Abs(Model.BatchClosing.Value - Model.Closing) > 0.0001m;
+    var batchCls = drift ? "text-end text-danger fw-bold" : "text-end";
+    var batchTitle = drift ? "批次剩余与账面结存不一致（缓存漂移），请到「生产批次管理」执行重算" : "批次剩余 = Σ t_PMS_BatchNoStock.FBatchNum";
+    var rowCls = isBatch ? "stockstat-batch d-none" : "stockstat-item fw-semibold";
+}
+
+<tr class="@rowCls"
+    data-item="@(isBatch ? null : Model.ItemId.ToString())"
+    data-parent="@(isBatch ? Model.ItemId.ToString() : null)">
+    <td class="text-nowrap">
+        @if (isBatch)
+        {
+            <span class="text-secondary ms-4">@Model.BatchNo</span>
+        }
+        else if (Model.Batches.Count > 0)
+        {
+            <a href="#" class="stockstat-toggle text-decoration-none" data-item="@Model.ItemId"
+               title="展开 / 折叠该商品的批次明细">▸</a>
+            <span class="text-secondary small ms-1">@Model.Batches.Count 批</span>
+        }
+        else
+        {
+            <span class="text-secondary">—</span>
+        }
+    </td>
+    <td class="@(isBatch ? "text-secondary" : "")">@Model.Cpqc</td>
+    <td class="text-secondary">@Model.Cpgg</td>
+    <td class="text-secondary">@Model.Cppym</td>
+    <td class="text-secondary">@Model.Wlbzdw</td>
+    <td class="text-secondary">@Model.Cplb</td>
+    <td class="text-end">@T(Model.Opening)</td>
+    <td class="text-end">@T(Model.Closing)</td>
+    <td class="@batchCls" title="@batchTitle">@(Model.BatchClosing.HasValue ? T(Model.BatchClosing.Value) : "-")</td>
+    <td class="text-end">@T(Model.PurchaseInQty)</td>
+    <td class="text-end">@(Model.PurchasePrice.HasValue ? M(Model.PurchasePrice.Value) : "-")</td>
+    <td class="text-end">@M(Model.PurchaseInAmount)</td>
+    <td class="text-end">@T(Model.ProdReturnQty)</td>
+    <td class="text-end">@T(Model.ProdInQty)</td>
+    <td class="text-end">@T(Model.ProdPickQty)</td>
+    <td class="text-end">@T(Model.ExchangeInQty)</td>
+    <td class="text-end">@T(Model.DeptPickQty)</td>
+    <td class="text-end">@T(Model.DeptReturnQty)</td>
+    <td class="text-end">@T(Model.StocktakeQty)</td>
+    <td class="text-end">@T(Model.LossQty)</td>
+    <td class="text-secondary">@Model.WarehouseName</td>
+    <td class="text-secondary">@Model.Cpbm</td>
+    <td class="text-secondary text-nowrap">@(Model.LastOut.HasValue ? Model.LastOut.Value.ToString("yyyy-MM-dd") : "")</td>
+</tr>
+@if (!isBatch && Model.Batches.Count > 0)
+{
+    foreach (var b in Model.Batches)
+    {
+        <partial name="_Row" model="b" />
+    }
+}

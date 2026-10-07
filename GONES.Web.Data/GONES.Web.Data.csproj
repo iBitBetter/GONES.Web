@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RootNamespace>GONES.Model</RootNamespace>
+    <AssemblyName>GONES.Web.Data</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- EF Core 9 + Npgsql：PG 原生数据层（GonesPgDbContext + Migrations）。
+         旧 EF6/SQL Server 层已于 2026-09-13 移除（备份见 ../temp/ef6_legacy_backup/）。 -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+  </ItemGroup>
+
+  <!-- 启动自愈所需的 SQL：建表结构 + 必备运行数据，作为嵌入资源编译进 DLL，
+       运行时由 DbInitializer 读取执行（Docker 只 COPY publish/，故必须随程序集嵌入）。 -->
+  <ItemGroup>
+    <EmbeddedResource Include="sql\schema.sql" />
+    <EmbeddedResource Include="sql\seed.sql" />
+  </ItemGroup>
+
+</Project>

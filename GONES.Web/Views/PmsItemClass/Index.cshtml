@@ -1,0 +1,39 @@
+@{
+    ViewBag.Title = "商品分类";
+    var tree = (System.Collections.Generic.List<GONES.Web.Models.ItemClassNode>)ViewBag.Tree;
+}
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        <div class="col-auto ms-auto">
+            <a class="btn btn-primary" href="/PmsItemClass/Create">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon">
+                    <path d="M12 5l0 14" /><path d="M5 12l14 0" />
+                </svg>
+                新增大类
+            </a>
+        </div>
+    </div>
+</div>
+
+@if (TempData["Success"] != null)
+{
+    <div class="alert alert-success mb-3">@TempData["Success"]</div>
+}
+@if (TempData["Error"] != null)
+{
+    <div class="alert alert-danger mb-3">@TempData["Error"]</div>
+}
+
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">分类架构</h3>
+        <div class="text-secondary">每个节点可直接「加子类 / 看商品 / 修改 / 删除」；点「看商品」跳到商品管理并按该分类过滤。</div>
+    </div>
+    <ul class="list-group list-group-flush">
+        @foreach (var node in tree)
+        {
+            @await Html.PartialAsync("_TreeNode", node)
+        }
+    </ul>
+</div>

@@ -1,0 +1,604 @@
+@using GONES.Model.Pg
+@using GONES.Web.Models
+@model ExchangeInEditViewModel
+@{
+    ViewBag.Title = "换货入库维护";
+    var isNew = Model.InterId == 0;
+    var deptOptions = (List<t_ERP_Department>)ViewBag.DeptOptions;
+    var workShopOptions = (List<t_ERP_Department>)ViewBag.WorkShopOptions;
+    var managers = (List<t_PMS_Worker>)ViewBag.Managers;
+    var inspectors = (List<t_ERP_DataDict>)ViewBag.Inspectors;
+    var suppliers = (List<t_ERP_DataDict>)ViewBag.Suppliers;
+    var createrName = (string)ViewBag.CreaterName;
+    var modifyName = (string)ViewBag.ModifyName;
+    var rows = Model.Rows ?? new List<ExchangeInRowInput>();
+    var readOnly = ViewBag.ReadOnly as bool? ?? false;
+
+    // 只读页（Details）把 action 置空并阻断提交：否则浏览器回车隐式提交会打到 Details（无 POST 动作）。
+    // formOnSubmit 为 null 时 Razor 直接省略 onsubmit 属性。
+    var formAction = readOnly ? "" : (isNew ? "/ExchangeIn/Create" : "/ExchangeIn/Edit/" + Model.InterId);
+    var formOnSubmit = readOnly ? "return false;" : null;
+}
+
+<div class="page-header d-print-none mb-3">
+    <div class="row align-items-center">
+        @if (readOnly)
+        {
+            <div class="col">
+                <h2 class="page-title">查看换货入库单 @Model.BillNo</h2>
+            </div>
+            <div class="col-auto">
+                <span class="badge bg-green-lt me-2">已审核（只读）</span>
+            </div>
+        }
+        <div class="col-auto ms-auto">
+            <a class="btn btn-outline-secondary" href="/ExchangeIn">返回列表</a>
+        </div>
+    </div>
+</div>
+
+@if (!Html.ViewData.ModelState.IsValid)
+{
+    var errs = Html.ViewData.ModelState
+        .SelectMany(m => m.Value.Errors)
+        .Select(e => e.ErrorMessage)
+        .Where(s => !string.IsNullOrEmpty(s))
+        .Distinct()
+        .ToList();
+    if (errs.Count > 0)
+    {
+        <div class="alert alert-danger mb-3">
+            @foreach (var e in errs) { <div>@e</div> }
+        </div>
+    }
+}
+
+<form method="post" action="@formAction" onsubmit="@formOnSubmit" id="eiForm">
+    @if (!readOnly)
+    {
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="InterId" value="@Model.InterId" />
+    }
+
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">基本信息</h3></div>
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">单据编号</label>
+                    <input type="text" class="form-control" value="@Model.BillNo" readonly />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">单据日期</label>
+                    <input type="date" class="form-control" name="Date" value="@Model.Date.ToString("yyyy-MM-dd")" required @(readOnly ? "disabled" : "") />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">制单人</label>
+                    <input type="text" class="form-control" value="@createrName" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">修改人 / 时间</label>
+                    <input type="text" class="form-control" value="@(string.IsNullOrEmpty(modifyName) ? "" : modifyName + (Model.ModifyTime != null ? "  " + Model.ModifyTime?.ToString("yyyy-MM-dd") : ""))" readonly tabindex="-1" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">入库部门</label>
+                    <select class="form-select" name="DeptId" id="DeptId" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var d in deptOptions)
+                        {
+                            var sel = (Model.DeptId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库车间</label>
+                    <select class="form-select" name="WorkShopId" id="WorkShopId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var d in workShopOptions)
+                        {
+                            var sel = (Model.WorkShopId == d.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + d.ID + "\"" + sel + ">" + Html.Encode(d.DEPName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">入库人</label>
+                    <select class="form-select" name="ManagerId" id="ManagerId" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var w in managers)
+                        {
+                            var sel = (Model.ManagerId == w.ID) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + w.ID + "\"" + sel + ">" + Html.Encode(w.FName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">供货单位</label>
+                    <select class="form-select" name="BuyingUnit" @(readOnly ? "disabled" : "")>
+                        <option value="">-- 不指定 --</option>
+                        @foreach (var s in suppliers)
+                        {
+                            var sel = (Model.BuyingUnit == s.DictName) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + Html.Encode(s.DictName) + "\"" + sel + ">" + Html.Encode(s.DictName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label required">检验人</label>
+                    <select class="form-select" name="Inspectors" required @(readOnly ? "disabled" : "")>
+                        <option value="">-- 请选择 --</option>
+                        @foreach (var ins in inspectors)
+                        {
+                            var sel = (Model.Inspectors == ins.DictName) ? " selected" : "";
+                            @Html.Raw("<option value=\"" + Html.Encode(ins.DictName) + "\"" + sel + ">" + Html.Encode(ins.DictName) + "</option>")
+                        }
+                    </select>
+                </div>
+                <div class="col-md-9">
+                    <label class="form-label">备注</label>
+                    <input type="text" class="form-control" name="Remark" value="@Model.Remark" placeholder="选填" @(readOnly ? "disabled" : "") />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">换货入库明细</h3>
+            <div class="card-actions">
+                <span class="badge bg-azure-lt" id="rowCount">@rows.Count 行</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="row g-2 mb-3">
+                <div class="col-12">
+                    <button type="button" class="btn btn-primary" id="btnPickReturn" @(readOnly ? "disabled" : "")>从仓库退料单导入</button>
+                    <div class="form-hint mt-1">只能导入已审核的仓库退料单，且只取「厂家原因」的退料数量；换货数量默认等于剩余可换数量，可根据实际到货情况修改；单价默认取退料行单价。同一条退料行不能重复导入，累计换货量不得超过厂家退料量。</div>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-vcenter card-table">
+                    <thead>
+                        <tr>
+                            <th style="width:10%;">来源退料单</th>
+                            <th style="width:14%;">产品名称</th>
+                            <th style="width:8%;">规格型号</th>
+                            <th style="width:5%;">单位</th>
+                            <th style="width:9%;">原批号</th>
+                            <th style="width:7%;" class="text-end">厂家退料量</th>
+                            <th style="width:7%;" class="text-end">剩余可换量</th>
+                            <th style="width:8%;">换货数量</th>
+                            <th style="width:8%;">单价</th>
+                            <th style="width:8%;" class="text-end">金额</th>
+                            <th style="width:10%;">备注</th>
+                            <th class="w-1"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="eiBody">
+                        @{
+                            var ri = 0;
+                        }
+                        @foreach (var r in rows)
+                        {
+                            var amount = (r.Qty ?? 0m) * (r.Price ?? 0m);
+                            <tr data-key="@(r.ReturnBillId)_@(r.ReturnEntryId)">
+                                <td class="text-secondary text-nowrap">
+                                    <input type="hidden" name="Rows[@ri].ReturnBillId" value="@r.ReturnBillId" />
+                                    <input type="hidden" name="Rows[@ri].ReturnEntryId" value="@r.ReturnEntryId" />
+                                    @r.ReturnBillNo
+                                </td>
+                                <td>
+                                    <input type="hidden" name="Rows[@ri].ItemId" value="@r.ItemId" />
+                                    <span>@r.ProductName</span>
+                                </td>
+                                <td class="text-secondary">@r.Spec</td>
+                                <td class="text-secondary">@r.Unit</td>
+                                <td class="text-secondary text-nowrap">@r.SrcBatchNo</td>
+                                <td class="text-end text-secondary">@string.Format("{0:0.##}", r.FactoryNum ?? 0m)</td>
+                                <td class="text-end text-secondary">@string.Format("{0:0.##}", r.RestNum ?? 0m)</td>
+                                <td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ei-calc" name="Rows[@ri].Qty" value="@r.Qty?.ToString("0.##")" @(readOnly ? "disabled" : "") /></td>
+                                <td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dec2 ei-calc" name="Rows[@ri].Price" value="@((r.Price ?? 0m).ToString("0.00"))" @(readOnly ? "disabled" : "") /></td>
+                                <td class="text-end"><span class="ei-amount text-secondary">@amount.ToString("0.00")</span></td>
+                                <td><input type="text" class="form-control form-control-sm" name="Rows[@ri].Note" value="@r.Note" @(readOnly ? "disabled" : "") /></td>
+                                <td>@if (!readOnly)
+                                {<button type="button" class="btn btn-sm btn-outline-danger ei-del">删</button>}</td>
+                            </tr>
+                            ri++;
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (!readOnly)
+        {
+            <div class="card-footer text-end">
+                <button type="submit" class="btn btn-primary" id="btnSave">保存换货入库单</button>
+            </div>
+        }
+    </div>
+</form>
+
+<!-- 仓库退料单选择：先选退料单，再勾选该单里的厂家原因退料明细 -->
+<div class="modal modal-blur" id="retModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">仓库退料单选择</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-2 mb-2">
+                    <div class="col-auto">
+                        <input type="text" class="form-control" id="retKw" placeholder="仓库退料单号 模糊匹配" autocomplete="off" />
+                    </div>
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-primary" id="btnRetSearch">查询</button>
+                    </div>
+                    <div class="col-auto ms-auto align-self-center">
+                        <span class="text-secondary" id="retBillHint">已审核的仓库退料单，点击一行查看可换货明细</span>
+                    </div>
+                </div>
+                <div class="table-responsive mb-2" style="max-height:200px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1"></th>
+                                <th>仓库退料单</th>
+                                <th>退料日期</th>
+                                <th>退料部门</th>
+                                <th class="text-end">厂家退料量</th>
+                                <th class="text-end">剩余可换量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="retListBody">
+                            <tr><td colspan="6" class="text-center text-secondary py-3">正在加载仓库退料单…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="fw-bold mb-1">可换货明细（仅厂家原因）</div>
+                <div class="table-responsive" style="max-height:260px;overflow:auto;">
+                    <table class="table table-sm table-vcenter card-table table-hover">
+                        <thead>
+                            <tr>
+                                <th class="w-1"><input type="checkbox" id="retCheckAll" /></th>
+                                <th>产品名称</th>
+                                <th class="text-secondary">规格型号</th>
+                                <th class="text-secondary">单位</th>
+                                <th class="text-secondary">原批号</th>
+                                <th class="text-secondary">仓库</th>
+                                <th class="text-end">厂家退料量</th>
+                                <th class="text-end">剩余可换量</th>
+                            </tr>
+                        </thead>
+                        <tbody id="retDetailBody">
+                            <tr><td colspan="8" class="text-center text-secondary py-3">请先在上方选择一张仓库退料单</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <span class="text-secondary me-auto" id="retModalHint">勾选可换货的明细行后点击「添加所选」，已在明细中的行会自动跳过</span>
+                <button type="button" class="btn btn-success" id="btnRetImport">添加所选</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        (function () {
+            var body = document.getElementById('eiBody');
+            var rowCount = document.getElementById('rowCount');
+
+            var retModalEl = document.getElementById('retModal');
+            var retListBody = document.getElementById('retListBody');
+            var retDetailBody = document.getElementById('retDetailBody');
+            var retKw = document.getElementById('retKw');
+            var retCheckAll = document.getElementById('retCheckAll');
+            var retModalHint = document.getElementById('retModalHint');
+            var retBillHint = document.getElementById('retBillHint');
+            var retModal = (typeof bootstrap !== 'undefined' && retModalEl)
+                ? new bootstrap.Modal(retModalEl) : null;
+
+            var deptSel = document.getElementById('DeptId');
+            var workShopSel = document.getElementById('WorkShopId');
+            var managerSel = document.getElementById('ManagerId');
+
+            var allBills = [];
+            var currentBillId = 0;
+
+            function fillOptions(select, items, emptyText) {
+                if (!select) return;
+                select.innerHTML = '<option value="">' + emptyText + '</option>';
+                for (var i = 0; i < items.length; i++) {
+                    var opt = document.createElement('option');
+                    opt.value = items[i].id;
+                    opt.textContent = items[i].name;
+                    select.appendChild(opt);
+                }
+            }
+
+            function loadWorkShops(deptId) {
+                if (!deptId) {
+                    fillOptions(workShopSel, [], '-- 不指定 --');
+                    return;
+                }
+                fetch('/ExchangeIn/GetWorkShops?deptId=' + deptId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(workShopSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            function loadManagers(workShopId) {
+                if (!workShopId) {
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    return;
+                }
+                fetch('/ExchangeIn/GetManagers?workShopId=' + workShopId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { fillOptions(managerSel, data, '-- 不指定 --'); })
+                    .catch(function (err) { console.error(err); });
+            }
+
+            if (deptSel) {
+                deptSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    workShopSel.value = '';
+                    managerSel.value = '';
+                    fillOptions(managerSel, [], '-- 不指定 --');
+                    loadWorkShops(id);
+                });
+            }
+
+            if (workShopSel) {
+                workShopSel.addEventListener('change', function () {
+                    var id = parseInt(this.value, 10) || 0;
+                    managerSel.value = '';
+                    loadManagers(id);
+                });
+            }
+
+            function esc(s) {
+                return String(s === null || s === undefined ? '' : s)
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function refreshCount() {
+                if (rowCount) rowCount.textContent = body.rows.length + ' 行';
+            }
+
+            function reindex() {
+                var fields = ['ReturnBillId', 'ReturnEntryId', 'ItemId', 'Qty', 'Price', 'Note'];
+                var trs = body.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    for (var k = 0; k < fields.length; k++) {
+                        var el = trs[i].querySelector('[name$="' + fields[k] + '"]');
+                        if (el) el.name = 'Rows[' + i + '].' + fields[k];
+                    }
+                }
+                refreshCount();
+            }
+
+            function recalc(tr) {
+                var qty = parseFloat(tr.querySelector('[name$=".Qty"]').value) || 0;
+                var price = parseFloat(tr.querySelector('[name$=".Price"]').value) || 0;
+                var span = tr.querySelector('.ei-amount');
+                if (span) span.textContent = (qty * price).toFixed(2);
+            }
+
+            function formatDec2(el) {
+                var v = parseFloat(el.value);
+                el.value = isNaN(v) ? '0.00' : v.toFixed(2);
+            }
+
+            body.addEventListener('blur', function (e) {
+                if (!e.target.classList) return;
+                if (e.target.classList.contains('dec2')) formatDec2(e.target);
+                if (e.target.classList.contains('ei-calc')) recalc(e.target.closest('tr'));
+            }, true);
+
+            // returns true when the row was added; false when the source row is already present
+            function addRow(x) {
+                var key = String(x.returnBillId) + '_' + String(x.returnEntryId);
+                if (!x.returnBillId || !x.returnEntryId) return false;
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-key') === key) return false;
+                }
+                var qty = Number(x.restNum || 0);
+                var price = Number(x.price || 0);
+
+                var tr = document.createElement('tr');
+                tr.setAttribute('data-key', key);
+                tr.innerHTML =
+                    '<td class="text-secondary text-nowrap">' +
+                    '    <input type="hidden" name="Rows[0].ReturnBillId" value="' + esc(x.returnBillId) + '">' +
+                    '    <input type="hidden" name="Rows[0].ReturnEntryId" value="' + esc(x.returnEntryId) + '">' +
+                    '    ' + esc(x.returnBillNo) + '</td>' +
+                    '<td><input type="hidden" name="Rows[0].ItemId" value="' + esc(x.itemId) + '">' +
+                    '    <span>' + esc(x.productName) + '</span></td>' +
+                    '<td class="text-secondary">' + esc(x.spec) + '</td>' +
+                    '<td class="text-secondary">' + esc(x.unit) + '</td>' +
+                    '<td class="text-secondary text-nowrap">' + esc(x.batchNo) + '</td>' +
+                    '<td class="text-end text-secondary">' + (Number(x.factoryNum) || 0).toFixed(2) + '</td>' +
+                    '<td class="text-end text-secondary">' + (Number(x.restNum) || 0).toFixed(2) + '</td>' +
+                    '<td><input type="number" step="0.01" min="0" class="form-control form-control-sm dec2 ei-calc" name="Rows[0].Qty" value="' + qty.toFixed(2) + '"></td>' +
+                    '<td><input type="number" step="0.0001" min="0" class="form-control form-control-sm dec2 ei-calc" name="Rows[0].Price" value="' + price.toFixed(2) + '"></td>' +
+                    '<td class="text-end"><span class="ei-amount text-secondary">' + (qty * price).toFixed(2) + '</span></td>' +
+                    '<td><input type="text" class="form-control form-control-sm" name="Rows[0].Note" value=""></td>' +
+                    '<td><button type="button" class="btn btn-sm btn-outline-danger ei-del">删</button></td>';
+                body.appendChild(tr);
+                reindex();
+                return true;
+            }
+
+            function hasRow(billId, entryId) {
+                var key = String(billId) + '_' + String(entryId);
+                for (var i = 0; i < body.rows.length; i++) {
+                    if (body.rows[i].getAttribute('data-key') === key) return true;
+                }
+                return false;
+            }
+
+            function renderRetList(list) {
+                if (!list || list.length === 0) {
+                    retListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">没有已审核的仓库退料单</td></tr>';
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < list.length; i++) {
+                    var b = list[i];
+                    h += '<tr data-billid="' + b.interId + '" class="ret-bill-row" style="cursor:pointer;">'
+                        + '<td><input type="radio" name="retBillRadio" value="' + b.interId + '"'
+                        + (currentBillId === b.interId ? ' checked' : '') + '></td>'
+                        + '<td>' + esc(b.billNo) + '</td>'
+                        + '<td class="text-secondary">' + esc(b.date) + '</td>'
+                        + '<td class="text-secondary">' + esc(b.deptName) + '</td>'
+                        + '<td class="text-end text-secondary">' + (Number(b.factoryQty) || 0).toFixed(2) + '</td>'
+                        + '<td class="text-end">' + (Number(b.restQty) || 0).toFixed(2) + '</td>'
+                        + '</tr>';
+                }
+                retListBody.innerHTML = h;
+            }
+
+            function filteredBills() {
+                var kw = (retKw.value || '').trim().toLowerCase();
+                if (!kw) return allBills;
+                return allBills.filter(function (b) {
+                    return String(b.billNo || '').toLowerCase().indexOf(kw) >= 0
+                        || String(b.deptName || '').toLowerCase().indexOf(kw) >= 0;
+                });
+            }
+
+            function loadRetList() {
+                retListBody.innerHTML = '<tr><td colspan="6" class="text-center text-secondary py-3">正在加载仓库退料单…</td></tr>';
+                fetch('/ExchangeIn/GetReturnBills')
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        allBills = data || [];
+                        renderRetList(filteredBills());
+                    })
+                    .catch(function (err) {
+                        console.error(err);
+                        retListBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger py-3">加载失败，请重试</td></tr>';
+                    });
+            }
+
+            function loadRetDetail(interId, done) {
+                retDetailBody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-3">正在加载明细…</td></tr>';
+                fetch('/ExchangeIn/GetReturnBillDetails?interId=' + interId)
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) { renderRetDetail(data || [], interId, done); })
+                    .catch(function (err) {
+                        console.error(err);
+                        retDetailBody.innerHTML = '<tr><td colspan="8" class="text-center text-danger py-3">加载失败，请重试</td></tr>';
+                    });
+            }
+
+            function renderRetDetail(items, interId, done) {
+                if (!items || items.length === 0) {
+                    retDetailBody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-3">该退料单没有可换货的厂家原因明细（可能已换满）</td></tr>';
+                    if (done) {
+                        done();
+                    } else if (retModalHint) {
+                        retModalHint.textContent = '该退料单没有可换货的厂家原因明细';
+                    }
+                    return;
+                }
+                var h = '';
+                for (var i = 0; i < items.length; i++) {
+                    var p = items[i];
+                    var inBill = hasRow(p.returnBillId, p.returnEntryId);
+                    h += '<tr data-payload="' + esc(JSON.stringify(p)).replace(/"/g, '&quot;') + '">'
+                        + '<td><input type="checkbox" class="ret-check"' + (inBill ? ' disabled checked' : '') + '></td>'
+                        + '<td>' + esc(p.productName) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.spec) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.unit) + '</td>'
+                        + '<td class="text-secondary text-nowrap">' + esc(p.batchNo) + '</td>'
+                        + '<td class="text-secondary">' + esc(p.warehouseName) + '</td>'
+                        + '<td class="text-end text-secondary">' + (Number(p.factoryNum) || 0).toFixed(2) + '</td>'
+                        + '<td class="text-end">' + (Number(p.restNum) || 0).toFixed(2) + '</td>'
+                        + '</tr>';
+                }
+                retDetailBody.innerHTML = h;
+                if (retCheckAll) retCheckAll.checked = false;
+                if (done) {
+                    done();
+                } else if (retModalHint) {
+                    retModalHint.textContent = '共 ' + items.length + ' 行可换货明细，灰色勾选行已在明细中（导入时自动跳过）';
+                }
+            }
+
+            var btnPickReturn = document.getElementById('btnPickReturn');
+            if (btnPickReturn) btnPickReturn.addEventListener('click', function () {
+                if (!retModal) return;
+                retKw.value = '';
+                currentBillId = 0;
+                retDetailBody.innerHTML = '<tr><td colspan="8" class="text-center text-secondary py-3">请先在上方选择一张仓库退料单</td></tr>';
+                if (retModalHint) retModalHint.textContent = '勾选可换货的明细行后点击「添加所选」，已在明细中的行会自动跳过';
+                loadRetList();
+                retModal.show();
+            });
+
+            var btnRetSearch = document.getElementById('btnRetSearch');
+            if (btnRetSearch) btnRetSearch.addEventListener('click', function () { renderRetList(filteredBills()); });
+
+            if (retKw) retKw.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); renderRetList(filteredBills()); }
+            });
+
+            // 点击整行 / 单选框 -> 加载该退料单的可换货明细
+            retListBody.addEventListener('click', function (e) {
+                var tr = e.target.closest ? e.target.closest('tr') : null;
+                if (!tr || !tr.dataset.billid) return;
+                var id = parseInt(tr.dataset.billid, 10) || 0;
+                if (!id) return;
+                currentBillId = id;
+                var radio = tr.querySelector('input[name="retBillRadio"]');
+                if (radio) radio.checked = true;
+                if (retBillHint) retBillHint.textContent = '已选择 ' + (tr.children[1] ? tr.children[1].textContent.trim() : '');
+                loadRetDetail(id);
+            });
+
+            if (retCheckAll) retCheckAll.addEventListener('change', function () {
+                var boxes = retDetailBody.querySelectorAll('input.ret-check');
+                for (var i = 0; i < boxes.length; i++) {
+                    if (!boxes[i].disabled) boxes[i].checked = retCheckAll.checked;
+                }
+            });
+
+            var btnRetImport = document.getElementById('btnRetImport');
+            if (btnRetImport) btnRetImport.addEventListener('click', function () {
+                var added = 0, skipped = 0;
+                var trs = retDetailBody.querySelectorAll('tr');
+                for (var i = 0; i < trs.length; i++) {
+                    var cb = trs[i].querySelector('.ret-check');
+                    if (!cb || !cb.checked || cb.disabled || !trs[i].dataset.payload) continue;
+                    try {
+                        var x = JSON.parse(trs[i].dataset.payload);
+                        if (addRow(x)) added++; else skipped++;
+                    } catch (err) { console.error(err); }
+                }
+                var msg = '已添加 ' + added + ' 行' + (skipped > 0 ? ('，' + skipped + ' 行已在明细中跳过') : '') + '（可继续添加或关闭）';
+                if (retModalHint) retModalHint.textContent = msg;
+                // 重载明细让已导入行变成灰显勾选；hint 必须在重载之后写（render 会覆盖它）
+                if (currentBillId) {
+                    loadRetDetail(currentBillId, function () {
+                        if (retModalHint) retModalHint.textContent = msg;
+                    });
+                }
+            });
+
+            body.addEventListener('click', function (e) {
+                if (e.target.classList && e.target.classList.contains('ei-del')) {
+                    e.target.closest('tr').remove();
+                    reindex();
+                }
+            });
+
+            refreshCount();
+        })();
+    </script>
+}

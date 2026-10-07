@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewBag.Title - GONES Web</title>
+    <link href="~/vendor/tabler/css/tabler.min.css" rel="stylesheet" />
+    <style>
+        /* GONES 品牌蓝覆盖 Tabler 默认主色 */
+        :root { --tblr-primary: #185fa5; }
+
+        /* 手风琴箭头：收起时向右，展开时向下 */
+        .nav-link[data-bs-toggle="collapse"] .nav-link-icon svg {
+            transition: transform .2s ease-in-out;
+        }
+        .nav-link[data-bs-toggle="collapse"][aria-expanded="true"] .nav-link-icon svg {
+            transform: rotate(90deg);
+        }
+
+        /* ===== 多标签页框架 ===== */
+        /* 顶层页面撑满视口，滚动交由标签页内容区处理 */
+        html:not(.gones-embedded), html:not(.gones-embedded) > body { height: 100%; }
+        html:not(.gones-embedded) .page { display: flex; height: 100%; min-height: 100%; }
+        html:not(.gones-embedded) .page-wrapper { display: flex; flex-direction: column; flex: 1 1 auto; min-width: 0; min-height: 0; }
+
+        .gones-tabbar { background: #fff; border-bottom: 1px solid var(--tblr-border-color, #e6e7e9); flex: 0 0 auto; }
+        .gones-tabstrip { display: flex; align-items: flex-end; gap: .25rem; padding: .4rem .75rem 0; overflow-x: auto; scrollbar-width: thin; }
+        .gones-tabstrip::-webkit-scrollbar { height: 4px; }
+        .gones-tabstrip::-webkit-scrollbar-thumb { background: #d2d6db; border-radius: 4px; }
+        .gones-tab {
+            display: inline-flex; align-items: center; gap: .4rem; max-width: 200px; flex: 0 0 auto;
+            padding: .45rem .5rem .45rem .8rem; font-size: .875rem; line-height: 1.2; color: #5c6166;
+            background: #f4f5f7; border: 1px solid var(--tblr-border-color, #e6e7e9); border-bottom: none;
+            border-radius: .35rem .35rem 0 0; cursor: pointer; user-select: none;
+        }
+        .gones-tab:hover { background: #eceef1; }
+        .gones-tab.active { background: #fff; color: #185fa5; font-weight: 600; box-shadow: inset 0 2px 0 0 #185fa5; }
+        .gones-tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .gones-tab-close {
+            display: inline-flex; align-items: center; justify-content: center; width: 1.1rem; height: 1.1rem;
+            border: 0; border-radius: 3px; background: transparent; color: inherit; opacity: .55; font-size: .9rem; line-height: 1;
+        }
+        .gones-tab-close:hover { opacity: 1; background: rgba(0,0,0,.08); }
+        .gones-tab-home .gones-tab-close { display: none; }
+
+        #gones-panes { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; padding: 0; }
+        .gones-pane { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: none; background: #f5f7fb; }
+        .gones-pane.active { display: block; }
+        .gones-pane-inline { overflow: auto; }
+        .gones-pane > iframe { display: block; width: 100%; height: 100%; border: 0; background: #f5f7fb; }
+
+        /* 右上角轻提示（用于"标签页数量已达上限"等） */
+        .gones-toast {
+            position: fixed; top: 1rem; right: 1rem; z-index: 2000; max-width: 22rem;
+            padding: .6rem .9rem; border-radius: .35rem; color: #fff; background: rgba(32,40,52,.95);
+            box-shadow: 0 .4rem 1rem rgba(0,0,0,.18); font-size: .875rem;
+            opacity: 0; transform: translateY(-8px); transition: opacity .2s, transform .2s; pointer-events: none;
+        }
+        .gones-toast.show { opacity: 1; transform: none; }
+
+        /* ===== iframe 内嵌模式：隐藏外层框架，只留业务内容 ===== */
+        html.gones-embedded .navbar-vertical,
+        html.gones-embedded header.navbar,
+        html.gones-embedded .gones-tabbar { display: none !important; }
+        html.gones-embedded .page-wrapper { margin-left: 0 !important; margin-right: 0 !important; }
+    </style>
+    <script>
+        // 处于 iframe 中时尽早打标记，避免框架闪烁（需在样式生效前执行）
+        if (window.self !== window.top) { document.documentElement.className += ' gones-embedded'; }
+        // 全站统一轻提示：顶层框架与 iframe 内嵌业务页共用同一套 .gones-toast 样式。
+        // 必须挂在 window 上（iframe 内嵌页同样会加载本布局），供各业务页替代原生 alert()。
+        window.gonesToast = function (msg) {
+            var box = document.getElementById('gones-toast');
+            if (!box) {
+                box = document.createElement('div');
+                box.id = 'gones-toast';
+                box.className = 'gones-toast';
+                document.body.appendChild(box);
+            }
+            box.textContent = msg;
+            box.classList.add('show');
+            clearTimeout(box._timer);
+            box._timer = setTimeout(function () { box.classList.remove('show'); }, 3200);
+        };
+    </script>
+</head>
+<body class="layout-fluid@(User.HasClaim(c => c.Type == "IsReadOnly" && c.Value == "1") ? " role-readonly" : "")">
+    <div class="page">
+        <!-- 左侧导航（Tabler navbar-vertical） -->
+        <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+            <div class="container-fluid">
+                <h1 class="navbar-brand navbar-brand-autodark">
+                    GONES Web
+                </h1>
+                <div class="navbar-nav flex-row d-lg-none">
+                    <button class="nav-link px-0 ms-2" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#sidebar-menu"
+                            aria-controls="sidebar-menu" aria-expanded="false" aria-label="展开菜单">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 6h16M4 12h16M4 18h16" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="collapse navbar-collapse" id="sidebar-menu">
+                    <nav class="navbar-nav pt-lg-3">
+                        @await Component.InvokeAsync("Menu")
+                    </nav>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 顶栏 -->
+        <header class="navbar navbar-expand-md d-none d-lg-flex d-print-none">
+            <div class="container-xl">
+                <h2 class="page-title d-none d-md-block ms-1">
+                    GONES · Web 控制台
+                </h2>
+                <div class="navbar-nav flex-row order-md-last align-items-center">
+                    <div class="nav-item dropdown">
+                        <a href="#" class="nav-link d-flex lh-1 text-reset p-0"
+                           data-bs-toggle="dropdown" aria-expanded="false">
+                            <span class="avatar avatar-sm bg-blue-lt">@((User.Identity.Name ?? "U").Substring(0, 1).ToUpper())</span>
+                            <div class="d-none d-xl-block ps-2">
+                                <div>@User.Identity.Name</div>
+                                <div class="mt-1 small text-secondary">已登录</div>
+                            </div>
+                        </a>
+                        <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
+                            <a class="dropdown-item" href="@Url.Action("ChangePassword", "Account")">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                     stroke-linejoin="round" class="icon dropdown-item-icon">
+                                    <path d="M10 14m-6 0a6 6 0 1 0 12 0a6 6 0 1 0 -12 0" />
+                                    <path d="M21 21l-6 -6" />
+                                </svg>
+                                修改密码
+                            </a>
+                            <div class="dropdown-divider"></div>
+                            <form asp-controller="Account" asp-action="Logout" method="post">
+                                <button type="submit" class="dropdown-item">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                                         fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                         stroke-linejoin="round" class="icon dropdown-item-icon">
+                                        <path d="M14 8v-2a2 2 0 0 0 -2 -2h-6a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2 -2v-2" />
+                                        <path d="M9 12h12l-3 -3" /><path d="M18 15l3 -3" />
+                                    </svg>
+                                    退出登录
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- 内容区（多标签页） -->
+        <div class="page-wrapper">
+            <div class="gones-tabbar d-print-none">
+                <div class="gones-tabstrip" id="gones-tabstrip"></div>
+            </div>
+            <div class="page-body p-0" id="gones-panes">
+                @{
+                    var homeUrl = Context.Request.Path.Value + Context.Request.QueryString.Value;
+                    var homeTitle = string.IsNullOrWhiteSpace(ViewBag.Title as string) ? "首页" : (string)ViewBag.Title;
+                }
+                <div class="gones-pane gones-pane-inline active" id="gones-pane-home" data-tab-home="1"
+                     data-title="@homeTitle" data-url="@homeUrl">
+                    <div class="container-xl py-3">
+                        @RenderBody()
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="~/vendor/tabler/js/bootstrap.bundle.min.js"></script>
+    <!-- tabler.min.js 移除：与 bootstrap.bundle 的 dropdown data-api 冲突，导致顶栏用户菜单点击无效；项目未使用任何 Tabler JS 专属组件 -->
+
+    <!-- 全局确认弹窗（替换浏览器原生 confirm） -->
+    <div class="modal modal-blur fade" id="gones-confirm-modal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                <div class="modal-status bg-danger"></div>
+                <div class="modal-body text-center py-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon mb-2 text-danger icon-lg"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.535a1.914 1.914 0 0 0 -3.274 0z" /><path d="M12 16h.01" /></svg>
+                    <h3 class="modal-title">请确认</h3>
+                    <div class="text-secondary" id="gones-confirm-message">确定要继续吗？</div>
+                </div>
+                <div class="modal-footer">
+                    <div class="w-100">
+                        <div class="row">
+                            <div class="col">
+                                <button type="button" class="btn w-100" data-bs-dismiss="modal">取消</button>
+                            </div>
+                            <div class="col">
+                                <button type="button" class="btn btn-danger w-100" id="gones-confirm-ok">确定</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var modalEl = document.getElementById('gones-confirm-modal');
+            if (!modalEl) return;
+            var bsModal = null;
+            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                bsModal = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+            }
+
+            var titleEl = modalEl.querySelector('.modal-title');
+            var msgEl = document.getElementById('gones-confirm-message');
+            var okBtn = document.getElementById('gones-confirm-ok');
+            var currentForm = null;
+            var currentBtn = null;
+
+            document.body.addEventListener('click', function (e) {
+                var btn = e.target.closest('[data-confirm]');
+                if (!btn) return;
+                currentForm = btn.closest('form');
+                currentBtn = btn;
+
+                // 若 Bootstrap 不可用，退回原生 confirm，避免直接删除
+                if (!bsModal) {
+                    var msg = btn.getAttribute('data-confirm-message') || '确定要继续吗？';
+                    if (confirm(msg)) {
+                        currentForm.submit();
+                    }
+                    return;
+                }
+
+                titleEl.textContent = btn.getAttribute('data-confirm-title') || '请确认';
+                msgEl.textContent = btn.getAttribute('data-confirm-message') || '确定要继续吗？';
+                okBtn.textContent = btn.getAttribute('data-confirm-yes') || '确定';
+                okBtn.className = 'btn w-100 ' + (btn.getAttribute('data-confirm-yes-class') || 'btn-danger');
+
+                // 阻止原生提交，先弹窗
+                e.preventDefault();
+                bsModal.show();
+            });
+
+            okBtn.addEventListener('click', function () {
+                if (!currentForm) {
+                    if (bsModal) bsModal.hide();
+                    return;
+                }
+                // 临时去掉 data-confirm 防止 submit 时再次弹窗
+                currentBtn.removeAttribute('data-confirm');
+                currentForm.submit();
+                if (bsModal) bsModal.hide();
+                // 提交完成后恢复属性（即使跳转失败，也不影响下次）
+                setTimeout(function () {
+                    currentBtn.setAttribute('data-confirm', '');
+                }, 0);
+            });
+
+            modalEl.addEventListener('hidden.bs.modal', function () {
+                currentForm = null;
+                currentBtn = null;
+            });
+        })();
+    </script>
+
+    <!-- ===== 多标签页（iframe 承载，最多 MAX_TABS 个） ===== -->
+    <script>
+        (function () {
+            if (window.self !== window.top) return;   // iframe 内的页面不初始化框架
+            var strip = document.getElementById('gones-tabstrip');
+            var panes = document.getElementById('gones-panes');
+            var homePane = document.getElementById('gones-pane-home');
+            if (!strip || !panes || !homePane) return;
+
+            var MAX_TABS = 15;                   // 最多同时打开的标签页数量（含首页），按需调整
+            var STORE_KEY = 'gones.tabs.v1';
+            var LOGIN_PATH = '/Account/Login';
+            var tabs = [];
+            var seq = 0;
+            var homeTitle = homePane.getAttribute('data-title') || '首页';
+            var homeUrl = homePane.getAttribute('data-url') || location.href;
+
+            function normalize(u) {
+                if (!u) return '';
+                try { return new URL(u, location.href).href.split('#')[0]; } catch (e) { return u; }
+            }
+            var toast = window.gonesToast;
+
+            function buildTabEl(t) {
+                var el = document.createElement('div');
+                el.className = 'gones-tab' + (t.closable ? '' : ' gones-tab-home');
+                el.title = t.title;
+                var span = document.createElement('span');
+                span.className = 'gones-tab-title';
+                span.textContent = t.title;
+                el.appendChild(span);
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'gones-tab-close';
+                btn.innerHTML = '&times;';
+                btn.setAttribute('aria-label', '关闭标签页');
+                btn.addEventListener('click', function (e) { e.stopPropagation(); closeTab(t); });
+                el.appendChild(btn);
+                el.addEventListener('click', function () { activate(t); });
+                el.addEventListener('dblclick', function () { if (t.closable) closeTab(t); });
+                strip.appendChild(el);
+                t.el = el;
+            }
+
+            function registerHome(title, url) {
+                var t = { id: ++seq, title: title, url: normalize(url), closable: false, home: true, pane: homePane, frame: null, el: null };
+                buildTabEl(t);
+                tabs.push(t);
+                return t;
+            }
+
+            function createTab(title, url) {
+                var t = { id: ++seq, title: title || url, url: normalize(url), closable: true, home: false, pane: null, frame: null, el: null };
+                var pane = document.createElement('div');
+                pane.className = 'gones-pane';
+                var frame = document.createElement('iframe');
+                frame.name = 'gones-frame-' + t.id;
+                frame.setAttribute('frameborder', '0');
+                frame.addEventListener('load', function () { onFrameLoad(t, frame); });
+                frame.src = t.url;
+                pane.appendChild(frame);
+                panes.appendChild(pane);
+                t.pane = pane;
+                t.frame = frame;
+                buildTabEl(t);
+                tabs.push(t);
+                return t;
+            }
+
+            function onFrameLoad(t, frame) {
+                var href = '';
+                try { href = frame.contentWindow.location.href; } catch (e) { return; }
+                if (!href || href === 'about:blank') return;
+                if (href.indexOf(LOGIN_PATH) >= 0) { window.location.href = href; return; }   // 会话失效，整页跳登录
+                t.url = href.split('#')[0];
+                try {
+                    var doc = frame.contentWindow.document;
+                    // 只取内容区标题，避免取到顶栏的 .page-title
+                    var pt = doc.querySelector('.page-body .page-title') || doc.querySelector('.page-header .page-title');
+                    if (pt) {
+                        var txt = (pt.textContent || '').trim();
+                        if (txt) { t.title = txt; t.el.title = txt; t.el.querySelector('.gones-tab-title').textContent = txt; }
+                    }
+                } catch (e) { }
+                persist();
+            }
+
+            function activate(t) {
+                for (var i = 0; i < tabs.length; i++) {
+                    tabs[i].pane.classList.remove('active');
+                    tabs[i].el.classList.remove('active');
+                }
+                t.pane.classList.add('active');
+                t.el.classList.add('active');
+                syncMenuHighlight(t.url);
+                if (t.el.offsetLeft < strip.scrollLeft ||
+                    t.el.offsetLeft + t.el.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+                    strip.scrollLeft = Math.max(0, t.el.offsetLeft - 40);
+                }
+                persist();
+            }
+
+            function syncMenuHighlight(url) {
+                var links = document.querySelectorAll('a.gones-tab-link');
+                for (var i = 0; i < links.length; i++) {
+                    var href = normalize(links[i].getAttribute('href'));
+                    links[i].classList.toggle('active', !!href && href === url);
+                }
+            }
+
+            function openTab(url, title) {
+                var target = normalize(url);
+                if (!target) return null;
+                for (var i = 0; i < tabs.length; i++) {
+                    if (tabs[i].url === target) { activate(tabs[i]); return tabs[i]; }
+                }
+                if (tabs.length >= MAX_TABS) {
+                    toast('最多同时打开 ' + MAX_TABS + ' 个标签页，请先关闭不用的标签页');
+                    return null;
+                }
+                var t = createTab(title, target);
+                activate(t);
+                return t;
+            }
+
+            function closeTab(t) {
+                if (!t || !t.closable) return;
+                var idx = tabs.indexOf(t);
+                if (idx < 0) return;
+                var wasActive = t.pane.classList.contains('active');
+                tabs.splice(idx, 1);
+                if (t.el && t.el.parentNode) t.el.parentNode.removeChild(t.el);
+                if (t.frame) { try { t.frame.src = 'about:blank'; } catch (e) { } }
+                if (t.pane && t.pane.parentNode) t.pane.parentNode.removeChild(t.pane);
+                if (wasActive && tabs.length) activate(tabs[Math.min(idx, tabs.length - 1)]);
+                persist();
+            }
+
+            function persist() {
+                try {
+                    var data = [];
+                    for (var i = 0; i < tabs.length; i++) {
+                        data.push({
+                            title: tabs[i].title,
+                            url: tabs[i].url,
+                            home: !!tabs[i].home,
+                            active: tabs[i].pane.classList.contains('active')
+                        });
+                    }
+                    sessionStorage.setItem(STORE_KEY, JSON.stringify(data));
+                } catch (e) { }
+            }
+
+            function restore() {
+                var raw = null;
+                try { raw = sessionStorage.getItem(STORE_KEY); } catch (e) { return null; }
+                if (!raw) return null;
+                var data = null;
+                try { data = JSON.parse(raw); } catch (e) { return null; }
+                if (!data || !data.length) return null;
+
+                var homeData = null;
+                for (var i = 0; i < data.length; i++) { if (data[i].home) { homeData = data[i]; break; } }
+                registerHome((homeData && homeData.title) || homeTitle, (homeData && homeData.url) || homeUrl);
+
+                var activeTab = null;
+                for (var j = 0; j < data.length; j++) {
+                    var d = data[j];
+                    if (d.home || !d.url) continue;
+                    var t = createTab(d.title, d.url);
+                    if (d.active) activeTab = t;
+                }
+                return activeTab || tabs[0];
+            }
+
+            // 菜单叶子节点：改在标签页中打开
+            document.addEventListener('click', function (e) {
+                if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                var a = e.target.closest ? e.target.closest('a.gones-tab-link') : null;
+                if (!a) return;
+                var href = a.getAttribute('href') || '';
+                if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0) return;
+                e.preventDefault();
+                var title = a.getAttribute('data-tab-title') || (a.textContent || '').trim() || href;
+                openTab(href, title);
+            });
+
+            var initial = restore();
+            if (!initial) { initial = registerHome(homeTitle, homeUrl); }
+            activate(initial);
+
+            // 供其它页面调用
+            window.GonesTabs = { open: openTab, close: closeTab, count: function () { return tabs.length; }, max: MAX_TABS };
+        })();
+
+        // 【独立标题兜底】页面在 Tab(iframe) 内打开时，页面身份由 Tab 标题承载，
+        // 页内兜底标题必须从 DOM 中彻底移除 —— 因为 Tab 标题提取器读的是
+        // '.page-body .page-title' / '.page-header .page-title' 的 textContent，
+        // 元素即便被隐藏(d-none)也照样会被命中并覆盖 Tab 标题。
+        // 直链/收藏夹直接打开（顶层窗口）时没有 Tab 承载，则显示极简标题。
+        (function () {
+            var els = document.querySelectorAll('.gones-standalone-title');
+            if (!els.length) return;
+            var inFrame = true;
+            try { inFrame = (window.self !== window.top); } catch (e) { inFrame = true; }
+            for (var i = els.length - 1; i >= 0; i--) {
+                if (inFrame) { if (els[i].parentNode) { els[i].parentNode.removeChild(els[i]); } }
+                else { els[i].classList.remove('d-none'); }
+            }
+        })();
+    </script>
+
+    @* 只读角色：隐藏写操作按钮（后端 MenuAccessFilter 已硬拦截，此为体验层） *@
+    <script>
+        (function () {
+            if (!document.body.classList.contains('role-readonly')) return;
+            var WRITE_KW = /新增|新建|添加|增加|编辑|修改|保存|提交|删除|移除|作废|撤销|审核|入库|出库|领料|退料|报损|盘点|派工|生成|过账|记账|导入|收货|发货|调整|冲销|停用|启用|复制/;
+            function isWrite(text) {
+                var t = (text || '').replace(/\s/g, '');
+                return WRITE_KW.test(t);
+            }
+            // 显式标记优先：任何 data-op="write" 的元素直接隐藏
+            document.querySelectorAll('[data-op="write"]').forEach(function (el) { el.style.display = 'none'; });
+            // 关键词兜底：按钮与链接按钮（不含导出/查询/搜索等只读动作）
+            document.querySelectorAll('button, a.btn, input[type="submit"]').forEach(function (el) {
+                if (isWrite(el.textContent)) el.style.display = 'none';
+            });
+        })();
+    </script>
+
+    @RenderSection("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GONES.Web</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GONES.Web.Data\GONES.Web.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- GBK (code page 936) so legacy Rnd.MD5(password) hashes match exactly. -->
+    <!-- PKT.NPinyin 2.0.0 = .NET Standard 2.0 repack of NPinyin; replaces the net20-only
+         NPinyin 0.2.6321.26573 to kill NU1701 (net9.0 compat) while keeping API Pinyin.GetInitials. -->
+    <PackageReference Include="PKT.NPinyin" Version="2.0.0" />
+    <PackageReference Include="System.Text.Encoding.CodePages" Version="8.0.0" />
+    <!-- PostgreSQL data layer: EF Core 9 Code-First + Npgsql provider (PG fork). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="9.0.4" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.4" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageReference Include="Npgsql" Version="9.0.4" />
+    <!-- Furion application framework (dotnetchina/Furion). Provides AddInject/UseInject,
+         ISingleton/IScoped/ITransient auto-DI, friendly exceptions, Swagger doc. -->
+    <PackageReference Include="Furion" Version="4.9.9.79" />
+  </ItemGroup>
+
+</Project>

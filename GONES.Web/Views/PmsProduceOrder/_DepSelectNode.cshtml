@@ -1,0 +1,31 @@
+@model GONES.Web.Models.DepartmentNode
+@{
+    var padding = 0.75 + Model.Depth * 1.1;
+}
+<li>
+    <a href="javascript:void(0)" class="dep-node list-group-item list-group-item-action @(Model.Enabled ? "" : "text-secondary")"
+       data-id="@Model.Id" data-name="@Model.Name" style="padding-left: @(padding)rem;">
+        @Model.Name
+        @if (Model.IsDep == 2)
+        {
+            <span class="badge bg-azure-lt ms-1">车间</span>
+        }
+        @if (Model.IsDep == 1)
+        {
+            <span class="badge bg-orange-lt ms-1">仓库</span>
+        }
+        @if (!Model.Enabled)
+        {
+            <span class="badge bg-red-lt ms-1">停用</span>
+        }
+    </a>
+    @if (Model.Children.Count > 0)
+    {
+        <ul class="list-unstyled mb-0" style="margin-left: 0.75rem;">
+            @foreach (var child in Model.Children)
+            {
+                @await Html.PartialAsync("~/Views/PmsProduceOrder/_DepSelectNode.cshtml", child)
+            }
+        </ul>
+    }
+</li>
